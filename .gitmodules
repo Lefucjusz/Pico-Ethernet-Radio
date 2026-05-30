@@ -1,3 +1,6 @@
 [submodule "third-party/FreeRTOS/FreeRTOS-Kernel"]
 	path = third-party/FreeRTOS/FreeRTOS-Kernel
 	url = git@github.com:FreeRTOS/FreeRTOS-Kernel.git
+[submodule "third-party/lwip/lwip"]
+	path = third-party/lwip/lwip
+	url = git@github.com:lwip-tcpip/lwip.git
