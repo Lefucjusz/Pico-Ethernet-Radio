@@ -3,12 +3,19 @@
 #include <task.h>
 #include <stdio.h>
 #include <lwip/tcpip.h>
+#include <lwip/dhcp.h>
+#include <enc28j60.h>
 
 #define LED_PIN 25
 
 static void bootstrap_task(void *arg)
 {
-    tcpip_init(NULL, NULL);
+    // tcpip_init(NULL, NULL);
+    // dhcp_start
+
+    enc28j60_init();
+
+    printf("Initialized, revision %d\n", enc28j60_get_revision());
 
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);

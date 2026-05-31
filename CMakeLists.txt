@@ -46,13 +46,15 @@ pico_enable_stdio_usb(Pico-Ethernet-Radio 0)
 
 add_subdirectory(third-party/FreeRTOS)
 add_subdirectory(third-party/lwip)
-# add_subdirectory(drivers)
+add_subdirectory(drivers)
 
 # Add the standard library to the build
 target_link_libraries(Pico-Ethernet-Radio
         pico_stdlib
         freertos_kernel
-        lwip)
+        lwip
+        ENC28J60
+)
 
 # Add the standard include files to the build
 target_include_directories(Pico-Ethernet-Radio PRIVATE
