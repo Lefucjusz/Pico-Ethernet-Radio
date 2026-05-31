@@ -42,7 +42,7 @@
 #define LWIP_STATS_DISPLAY              1
 #endif
 
-#define TCPIP_THREAD_STACKSIZE          (2 * 1024)
+#define TCPIP_THREAD_STACKSIZE          (4 * 1024)
 #define DEFAULT_THREAD_STACKSIZE        1024
 #define DEFAULT_RAW_RECVMBOX_SIZE       8
 #define TCPIP_MBOX_SIZE                 8

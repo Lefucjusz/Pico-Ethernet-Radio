@@ -5,12 +5,13 @@
 #include <pico/time.h>
 #include <FreeRTOS.h>
 #include <task.h>
+#include <semphr.h>
 #include <stdio.h>
 
 // TODO add IRQ?
 
 #define ENC28J60_SPI_PORT       spi1
-#define ENC28J60_SPI_BAUD_RATE  (1 * 1000 * 1000) // TODO speed up
+#define ENC28J60_SPI_BAUD_RATE  (16 * 1000 * 1000)
 
 #define ENC28J60_SPI_MOSI_PIN   11
 #define ENC28J60_SPI_MISO_PIN   12
@@ -18,25 +19,28 @@
 #define ENC28J60_SPI_CS_PIN     13
 
 /* Rx buf at 0x0000 is needed for errata Rev. B7, Issue 3 */
-#define ENC28J60_TX_BUF_SIZE 0x600
-#define ENC28J60_RX_BUF_START ENC28J60_RAM_START
-#define ENC28J60_RX_BUF_END (ENC28J60_RAM_END - ENC28J60_TX_BUF_SIZE - 1)
-#define ENC28J60_TX_BUF_START (ENC28J60_RX_BUF_END + 1)
-#define ENC28J60_TX_BUF_END ENC28J60_RAM_END
+#define ENC28J60_TX_BUF_SIZE    0x600
+#define ENC28J60_RX_BUF_START   ENC28J60_RAM_START
+#define ENC28J60_RX_BUF_END     (ENC28J60_RAM_END - ENC28J60_TX_BUF_SIZE - 1)
+#define ENC28J60_TX_BUF_START   (ENC28J60_RX_BUF_END + 1)
+#define ENC28J60_TX_BUF_END     ENC28J60_RAM_END
 
-#define ENC28J60_MAX_FRAME_LEN 1500
+#define ENC28J60_MAX_FRAME_LEN  1500
 
 static uint8_t current_bank;
 static uint16_t next_packet_ptr;
+static SemaphoreHandle_t spi_mutex;
 
 inline static void enc28j60_select(void)
 {
+    xSemaphoreTake(spi_mutex, portMAX_DELAY);
     gpio_put(ENC28J60_SPI_CS_PIN, false);
 }
 
 inline static void enc28j60_deselect(void)
 {
     gpio_put(ENC28J60_SPI_CS_PIN, true);
+    xSemaphoreGive(spi_mutex);
 }
 
 inline static void enc28j60_write(const uint8_t *data, size_t size)
@@ -125,18 +129,38 @@ static uint8_t enc28j60_read_ctrl_reg(uint8_t reg)
 
 static void enc28j60_write_phy_reg(uint8_t reg, uint16_t val)
 {
-    /* PHY registers are accessed indirectly. First write address of the PHY register
-     * to access to MIREGADR, then write the value to MIWRx and wait until write
-     * transaction is completed. */
+    /* PHY registers are accessed indirectly. First write address of the PHY register to access to MIREGADR. */
     enc28j60_write_ctrl_reg(ENC28J60_MIREGADR, reg);
+
+    /* Then write the value to MIWR */
     enc28j60_write_ctrl_reg16(ENC28J60_MIWRL, val);
+
+    /* Wait until the write transaction is completed */
     while ((enc28j60_read_ctrl_reg(ENC28J60_MISTAT) & ENC28J60_MISTAT_BUSY) != 0) {}
 }
 
-// static uint16_t enc28j60_read_phy_reg(uint8_t reg, uint16_t val)
-// {
-//     // TODO
-// }
+static uint16_t enc28j60_read_phy_reg(uint8_t reg)
+{
+    uint8_t data[2];
+
+    /* Write address of the PHY register to access to MIREGADR */
+    enc28j60_write_ctrl_reg(ENC28J60_MIREGADR, reg);
+
+    /* Set the MICMD.MIIRD bit to begin the read transaction */
+    enc28j60_bit_field_set(ENC28J60_MICMD, ENC28J60_MICMD_MIIRD);
+
+    /* Wait until the read transcation is completed */
+    while ((enc28j60_read_ctrl_reg(ENC28J60_MISTAT) & ENC28J60_MISTAT_BUSY) != 0) {}
+
+    /* Clear the MICMD.MIIRD bit */
+    enc28j60_bit_field_clear(ENC28J60_MICMD, ENC28J60_MICMD_MIIRD);
+
+    /* Read the desired data from MIRDL and MIRDH registers */
+    data[0] = enc28j60_read_ctrl_reg(ENC28J60_MIRDL);
+    data[1] = enc28j60_read_ctrl_reg(ENC28J60_MIRDH);
+
+    return data[0] | (data[1] << 8);
+}
 
 static void enc28j60_write_buffer(const void *data, size_t size)
 {
@@ -175,13 +199,17 @@ static void enc28j60_gpio_init(void)
     /* Initialize CS */
     gpio_init(ENC28J60_SPI_CS_PIN);
     gpio_set_dir(ENC28J60_SPI_CS_PIN, GPIO_OUT);
-    enc28j60_deselect();
+    gpio_put(ENC28J60_SPI_CS_PIN, true);
+    // enc28j60_deselect();
 }
 
 void enc28j60_init(const uint8_t *mac_addr)
 {
     /* Initialize GPIOs */
     enc28j60_gpio_init();
+
+    /* Create mutex to protect SPI bus access */
+    spi_mutex = xSemaphoreCreateMutex();
 
     /* Perform software reset */
     enc28j60_system_reset();
@@ -210,7 +238,7 @@ void enc28j60_init(const uint8_t *mac_addr)
     enc28j60_write_ctrl_reg16(ENC28J60_EPMCSL, 0xF7F9);
 
     /* Enable MAC receive logic, allow sending and respond to PAUSE frames */
-    enc28j60_write_ctrl_reg(ENC28J60_MACON1, ENC28J60_MACON1_TXPAUS | ENC28J60_MACON1_TXPAUS | ENC28J60_MACON1_MARXEN);
+    enc28j60_write_ctrl_reg(ENC28J60_MACON1, ENC28J60_MACON1_RXPAUS | ENC28J60_MACON1_TXPAUS | ENC28J60_MACON1_MARXEN);
 
     /* Zero-pad short frames to 60 bits and append CRC, enable validation of frame length, half-duplex operation */
     enc28j60_write_ctrl_reg(ENC28J60_MACON3, ENC28J60_MACON3_PADCFG0 | ENC28J60_MACON3_TXCRCEN | ENC28J60_MACON3_FRMLNEN);
@@ -250,6 +278,10 @@ void enc28j60_send_packet(const uint8_t *packet, size_t size)
     /* Errata Rev. B7, Issue 10 - reset transmit logic before attempting to send a packet */
     enc28j60_bit_field_set(ENC28J60_ECON1, ENC28J60_ECON1_TXRST);
     enc28j60_bit_field_clear(ENC28J60_ECON1, ENC28J60_ECON1_TXRST);
+    enc28j60_bit_field_clear(ENC28J60_EIR, ENC28J60_EIR_TXIF | ENC28J60_EIR_TXERIF);
+
+    /* Set write pointer to the start of transmit buffer area */
+    enc28j60_write_ctrl_reg16(ENC28J60_EWRPTL, ENC28J60_TX_BUF_START);
 
     /* Set TXND pointer to correspond to the packet size */
     enc28j60_write_ctrl_reg16(ENC28J60_ETXNDL, ENC28J60_TX_BUF_START + size);
@@ -265,12 +297,7 @@ void enc28j60_send_packet(const uint8_t *packet, size_t size)
     enc28j60_bit_field_set(ENC28J60_ECON1, ENC28J60_ECON1_TXRTS);
 
     /* Wait for transmission to complete TODO is it needed? */
-    while ((enc28j60_read_ctrl_reg(ENC28J60_EIR) & ENC28J60_EIR_TXIF) == 0) {}
-
-    /* Clear TXIF */
-    enc28j60_bit_field_clear(ENC28J60_EIR, ENC28J60_EIR_TXIF);
-
-    // printf("packet sent\n");
+    // while ((enc28j60_read_ctrl_reg(ENC28J60_EIR) & ENC28J60_EIR_TXIF) == 0) {}
 }
 
 size_t enc28j60_receive_packet(uint8_t *packet, size_t max_size)
@@ -309,19 +336,20 @@ size_t enc28j60_receive_packet(uint8_t *packet, size_t max_size)
     /* Decrement the packet counter */
     enc28j60_bit_field_set(ENC28J60_ECON2, ENC28J60_ECON2_PKTDEC);
 
-    // printf("packet received\n");
-
     return size;
 }
 
-bool enc28j60_packets_pending(void)
+bool enc28j60_rx_packets_pending(void)
 {
-    return (enc28j60_read_ctrl_reg(ENC28J60_EPKTCNT) > 0);
+    return enc28j60_read_ctrl_reg(ENC28J60_EPKTCNT) > 0;
+}
+
+bool enc28j60_is_link_up(void)
+{
+    return (enc28j60_read_phy_reg(ENC28J60_PHSTAT2) & ENC28J60_PHSTAT2_LSTAT) != 0;
 }
 
 uint8_t enc28j60_get_revision(void)
 {
     return enc28j60_read_ctrl_reg(ENC28J60_EREVID);
 }
-
-// TODO is link up
