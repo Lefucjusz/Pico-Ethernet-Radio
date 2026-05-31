@@ -5,6 +5,7 @@
 #include <pico/time.h>
 #include <FreeRTOS.h>
 #include <task.h>
+#include <stdio.h>
 
 // TODO add IRQ?
 
@@ -16,7 +17,7 @@
 #define ENC28J60_SPI_SCK_PIN    10
 #define ENC28J60_SPI_CS_PIN     13
 
-/* Rx buf at 0x0000 is needed for errata Rev. B7, 3 */
+/* Rx buf at 0x0000 is needed for errata Rev. B7, Issue 3 */
 #define ENC28J60_TX_BUF_SIZE 0x600
 #define ENC28J60_RX_BUF_START ENC28J60_RAM_START
 #define ENC28J60_RX_BUF_END (ENC28J60_RAM_END - ENC28J60_TX_BUF_SIZE - 1)
@@ -25,9 +26,8 @@
 
 #define ENC28J60_MAX_FRAME_LEN 1500
 
-static const uint8_t mac_addr[] = {0xDE, 0xAD, 0xBA, 0xBE, 0xCA, 0xFE};
-
 static uint8_t current_bank;
+static uint16_t next_packet_ptr;
 
 inline static void enc28j60_select(void)
 {
@@ -39,14 +39,19 @@ inline static void enc28j60_deselect(void)
     gpio_put(ENC28J60_SPI_CS_PIN, true);
 }
 
-// inline static void enc28j60_write(const uint8_t *data, size_t size)
-// {
-//     spi_write_blocking(ENC28J60_SPI_PORT, data, size);
-// }
+inline static void enc28j60_write(const uint8_t *data, size_t size)
+{
+    spi_write_blocking(ENC28J60_SPI_PORT, data, size);
+}
 
 inline static void enc28j60_write_byte(uint8_t val)
 {
     spi_write_blocking(ENC28J60_SPI_PORT, &val, sizeof(val));
+}
+
+inline static void enc28j60_read(uint8_t *data, size_t size)
+{
+    spi_read_blocking(ENC28J60_SPI_PORT, 0xFF, data, size);
 }
 
 inline static uint8_t enc28j60_read_byte(void)
@@ -128,9 +133,25 @@ static void enc28j60_write_phy_reg(uint8_t reg, uint16_t val)
     while ((enc28j60_read_ctrl_reg(ENC28J60_MISTAT) & ENC28J60_MISTAT_BUSY) != 0) {}
 }
 
-static uint16_t enc28j60_read_phy_reg(uint8_t reg, uint16_t val)
+// static uint16_t enc28j60_read_phy_reg(uint8_t reg, uint16_t val)
+// {
+//     // TODO
+// }
+
+static void enc28j60_write_buffer(const void *data, size_t size)
 {
-    // TODO
+    enc28j60_select();
+    enc28j60_write_byte(ENC28J60_WRITE_BUFFER_MEM);
+    enc28j60_write(data, size);
+    enc28j60_deselect();
+}
+
+static void enc28j60_read_buffer(void *data, size_t size)
+{
+    enc28j60_select();
+    enc28j60_write_byte(ENC28J60_READ_BUFFER_MEM);
+    enc28j60_read(data, size);
+    enc28j60_deselect();
 }
 
 static void enc28j60_system_reset(void)
@@ -140,7 +161,7 @@ static void enc28j60_system_reset(void)
     enc28j60_deselect();
 
     current_bank = ENC28J60_BANK_0_MASK;
-    vTaskDelay(pdMS_TO_TICKS(10)); // Errata Rev. B7, 1
+    vTaskDelay(pdMS_TO_TICKS(10)); // Errata Rev. B7, Issue 1
 }
 
 static void enc28j60_gpio_init(void)
@@ -157,7 +178,7 @@ static void enc28j60_gpio_init(void)
     enc28j60_deselect();
 }
 
-void enc28j60_init(void)
+void enc28j60_init(const uint8_t *mac_addr)
 {
     /* Initialize GPIOs */
     enc28j60_gpio_init();
@@ -169,8 +190,9 @@ void enc28j60_init(void)
     enc28j60_write_ctrl_reg16(ENC28J60_ERXSTL, ENC28J60_RX_BUF_START);
     enc28j60_write_ctrl_reg16(ENC28J60_ERXNDL, ENC28J60_RX_BUF_END);
     enc28j60_write_ctrl_reg16(ENC28J60_ERXRDPTL, ENC28J60_RX_BUF_START);
+    next_packet_ptr = ENC28J60_RX_BUF_START;
 
-     /* Configure Tx buffer range */
+    /* Configure Tx buffer range */
     enc28j60_write_ctrl_reg16(ENC28J60_ETXSTL, ENC28J60_TX_BUF_START);
     enc28j60_write_ctrl_reg16(ENC28J60_ETXNDL, ENC28J60_TX_BUF_END);
 
@@ -223,8 +245,83 @@ void enc28j60_init(void)
     enc28j60_bit_field_set(ENC28J60_ECON1, ENC28J60_ECON1_RXEN);
 }
 
+void enc28j60_send_packet(const uint8_t *packet, size_t size)
+{
+    /* Errata Rev. B7, Issue 10 - reset transmit logic before attempting to send a packet */
+    enc28j60_bit_field_set(ENC28J60_ECON1, ENC28J60_ECON1_TXRST);
+    enc28j60_bit_field_clear(ENC28J60_ECON1, ENC28J60_ECON1_TXRST);
+
+    /* Set TXND pointer to correspond to the packet size */
+    enc28j60_write_ctrl_reg16(ENC28J60_ETXNDL, ENC28J60_TX_BUF_START + size);
+
+    /* Write per-packet control byte, cleared bit 0 means use MACON3 settings */
+    const uint8_t ctrl = 0x00;
+    enc28j60_write_buffer(&ctrl, sizeof(ctrl));
+
+    /* Write packet to the buffer */
+    enc28j60_write_buffer(packet, size);
+
+    /* Trigger transmission */
+    enc28j60_bit_field_set(ENC28J60_ECON1, ENC28J60_ECON1_TXRTS);
+
+    /* Wait for transmission to complete TODO is it needed? */
+    while ((enc28j60_read_ctrl_reg(ENC28J60_EIR) & ENC28J60_EIR_TXIF) == 0) {}
+
+    /* Clear TXIF */
+    enc28j60_bit_field_clear(ENC28J60_EIR, ENC28J60_EIR_TXIF);
+
+    // printf("packet sent\n");
+}
+
+size_t enc28j60_receive_packet(uint8_t *packet, size_t max_size)
+{
+    uint16_t size;
+    uint16_t status;
+
+    // TODO check if we have any packet
+
+    /* Set the read pointer to the start of the received packet */
+    enc28j60_write_ctrl_reg16(ENC28J60_ERDPTL, next_packet_ptr);
+
+    /* Read the next packet pointer */
+    enc28j60_read_buffer(&next_packet_ptr, sizeof(next_packet_ptr));
+
+    /* Read the packet length */
+    enc28j60_read_buffer(&size, sizeof(size));
+    size -= 4; // Remove the CRC count
+
+    /* Prevent buffer overrun */
+    if (size > max_size) {
+        size = max_size;
+    }
+
+    /* Read the Rx status */
+    enc28j60_read_buffer(&status, sizeof(status));
+
+    // TODO check status & 0x80?
+
+    /* Copy the packet from the receive buffer */
+    enc28j60_read_buffer(packet, size);
+
+    /* Moxe the Rx read pointer to the start of the next received packet */
+    enc28j60_write_ctrl_reg16(ENC28J60_ERXRDPTL, next_packet_ptr);
+
+    /* Decrement the packet counter */
+    enc28j60_bit_field_set(ENC28J60_ECON2, ENC28J60_ECON2_PKTDEC);
+
+    // printf("packet received\n");
+
+    return size;
+}
+
+bool enc28j60_packets_pending(void)
+{
+    return (enc28j60_read_ctrl_reg(ENC28J60_EPKTCNT) > 0);
+}
 
 uint8_t enc28j60_get_revision(void)
 {
     return enc28j60_read_ctrl_reg(ENC28J60_EREVID);
 }
+
+// TODO is link up

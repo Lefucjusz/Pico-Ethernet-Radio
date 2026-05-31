@@ -28,12 +28,12 @@
 #define ENC28J60_EIE_TXERIE (1 << 1)
 #define ENC28J60_EIE_RXERIE (1 << 0)
 
-#define ENC28J60_EIF_PKTIF (1 << 6)
-#define ENC28J60_EIF_DMAIF (1 << 5)
-#define ENC28J60_EIF_LINKIF (1 << 4)
-#define ENC28J60_EIF_TXIF (1 << 3)
-#define ENC28J60_EIF_TXERIF (1 << 1)
-#define ENC28J60_EIF_RXERIF (1 << 0)
+#define ENC28J60_EIR_PKTIF (1 << 6)
+#define ENC28J60_EIR_DMAIF (1 << 5)
+#define ENC28J60_EIR_LINKIF (1 << 4)
+#define ENC28J60_EIR_TXIF (1 << 3)
+#define ENC28J60_EIR_TXERIF (1 << 1)
+#define ENC28J60_EIR_RXERIF (1 << 0)
 
 #define ENC28J60_ESTAT_INT (1 << 7)
 #define ENC28J60_ESTAT_BUFER (1 << 6)
