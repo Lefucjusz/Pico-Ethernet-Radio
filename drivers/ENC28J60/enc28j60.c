@@ -11,7 +11,7 @@
 // TODO add IRQ?
 
 #define ENC28J60_SPI_PORT       spi1
-#define ENC28J60_SPI_BAUD_RATE  (16 * 1000 * 1000)
+#define ENC28J60_SPI_BAUD_RATE  (4 * 1000 * 1000)
 
 #define ENC28J60_SPI_MOSI_PIN   11
 #define ENC28J60_SPI_MISO_PIN   12
@@ -136,7 +136,9 @@ static void enc28j60_write_phy_reg(uint8_t reg, uint16_t val)
     enc28j60_write_ctrl_reg16(ENC28J60_MIWRL, val);
 
     /* Wait until the write transaction is completed */
-    while ((enc28j60_read_ctrl_reg(ENC28J60_MISTAT) & ENC28J60_MISTAT_BUSY) != 0) {}
+    while ((enc28j60_read_ctrl_reg(ENC28J60_MISTAT) & ENC28J60_MISTAT_BUSY) != 0) {
+        portYIELD();
+    }
 }
 
 static uint16_t enc28j60_read_phy_reg(uint8_t reg)
@@ -150,7 +152,9 @@ static uint16_t enc28j60_read_phy_reg(uint8_t reg)
     enc28j60_bit_field_set(ENC28J60_MICMD, ENC28J60_MICMD_MIIRD);
 
     /* Wait until the read transcation is completed */
-    while ((enc28j60_read_ctrl_reg(ENC28J60_MISTAT) & ENC28J60_MISTAT_BUSY) != 0) {}
+    while ((enc28j60_read_ctrl_reg(ENC28J60_MISTAT) & ENC28J60_MISTAT_BUSY) != 0) {
+        portYIELD();
+    }
 
     /* Clear the MICMD.MIIRD bit */
     enc28j60_bit_field_clear(ENC28J60_MICMD, ENC28J60_MICMD_MIIRD);
@@ -200,7 +204,6 @@ static void enc28j60_gpio_init(void)
     gpio_init(ENC28J60_SPI_CS_PIN);
     gpio_set_dir(ENC28J60_SPI_CS_PIN, GPIO_OUT);
     gpio_put(ENC28J60_SPI_CS_PIN, true);
-    // enc28j60_deselect();
 }
 
 void enc28j60_init(const uint8_t *mac_addr)
@@ -259,15 +262,14 @@ void enc28j60_init(const uint8_t *mac_addr)
     enc28j60_write_ctrl_reg(ENC28J60_MAADR3, mac_addr[2]);
     enc28j60_write_ctrl_reg(ENC28J60_MAADR4, mac_addr[3]);
     enc28j60_write_ctrl_reg(ENC28J60_MAADR5, mac_addr[4]);
-    enc28j60_write_ctrl_reg(ENC28J60_MAADR6, mac_addr[5]); // TODO verify order
-
+    enc28j60_write_ctrl_reg(ENC28J60_MAADR6, mac_addr[5]);
     /* Disable half-duplex loopback */
     enc28j60_write_phy_reg(ENC28J60_PHCON2, ENC28J60_PHCON2_HDLDIS);
 
     /* Set LED config - stretch LED events by 70ms (normal), LEDA -> link status, LEDB -> Tx/Rx activity */
     enc28j60_write_phy_reg(ENC28J60_PHLCON, ENC28J60_PHLCON_LACFG2 |
-                                            ENC28J60_PHLCON_LBCFG2 | ENC28J60_PHLCON_LBCFG1 | ENC28J60_PHLCON_LBCFG0 |
-                                            ENC28J60_PHLCON_LFRQ0 | ENC28J60_PHLCON_STRCH);
+                                            ENC28J60_PHLCON_LBCFG2 | ENC28J60_PHLCON_LBCFG1 | ENC28J60_PHLCON_LBCFG0);// |
+                                            //ENC28J60_PHLCON_LFRQ0 | ENC28J60_PHLCON_STRCH);
 
     /* Start receiving */
     enc28j60_bit_field_set(ENC28J60_ECON1, ENC28J60_ECON1_RXEN);
@@ -298,6 +300,8 @@ void enc28j60_send_packet(const uint8_t *packet, size_t size)
 
     /* Wait for transmission to complete TODO is it needed? */
     // while ((enc28j60_read_ctrl_reg(ENC28J60_EIR) & ENC28J60_EIR_TXIF) == 0) {}
+
+    // TODO check errors
 }
 
 size_t enc28j60_receive_packet(uint8_t *packet, size_t max_size)
@@ -331,7 +335,7 @@ size_t enc28j60_receive_packet(uint8_t *packet, size_t max_size)
     enc28j60_read_buffer(packet, size);
 
     /* Moxe the Rx read pointer to the start of the next received packet */
-    enc28j60_write_ctrl_reg16(ENC28J60_ERXRDPTL, next_packet_ptr);
+    enc28j60_write_ctrl_reg16(ENC28J60_ERXRDPTL, next_packet_ptr); // TODO errata odd/even
 
     /* Decrement the packet counter */
     enc28j60_bit_field_set(ENC28J60_ECON2, ENC28J60_ECON2_PKTDEC);

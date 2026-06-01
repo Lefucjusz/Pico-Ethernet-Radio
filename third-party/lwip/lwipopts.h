@@ -1,10 +1,10 @@
 #pragma once
 
 #define NO_SYS                          0
-#define LWIP_SOCKET                     0
+#define LWIP_SOCKET                     1
 #define MEM_LIBC_MALLOC                 0
 #define MEM_ALIGNMENT                   4
-#define MEM_SIZE                        4000
+#define MEM_SIZE                        4096
 #define MEMP_NUM_TCP_SEG                32
 #define MEMP_NUM_ARP_QUEUE              10
 #define PBUF_POOL_SIZE                  24
@@ -19,7 +19,7 @@
 #define LWIP_NETIF_STATUS_CALLBACK      1
 #define LWIP_NETIF_LINK_CALLBACK        1
 #define LWIP_NETIF_HOSTNAME             1
-#define LWIP_NETCONN                    1
+#define LWIP_NETCONN                    0
 #define MEM_STATS                       0
 #define SYS_STATS                       0
 #define MEMP_STATS                      0
@@ -30,7 +30,7 @@
 #define LWIP_IPV4                       1
 #define LWIP_TCP                        1
 #define LWIP_UDP                        1
-#define LWIP_DNS                        0
+#define LWIP_DNS                        1
 #define LWIP_TCP_KEEPALIVE              1
 #define LWIP_NETIF_TX_SINGLE_PBUF       1
 #define DHCP_DOES_ARP_CHECK             0

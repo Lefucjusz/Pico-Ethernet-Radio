@@ -12,6 +12,6 @@ void vApplicationMallocFailedHook(void)
 #if configCHECK_FOR_STACK_OVERFLOW > 0
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
-    panic("%s", __func__);
+    panic("%s: %s", __func__, pcTaskName);
 }
 #endif
