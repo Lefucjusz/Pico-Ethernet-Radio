@@ -479,7 +479,8 @@ sys_thread_new(const char *name, lwip_thread_fn thread, void *arg, int stacksize
 
   /* lwIP's lwip_thread_fn matches FreeRTOS' TaskFunction_t, so we can pass the
      thread function without adaption here. */
-  ret = xTaskCreateAffinitySet(thread, name, (configSTACK_DEPTH_TYPE)rtos_stacksize, arg, prio, 1 << LWIP_FREERTOS_TCPIP_CORE_AFFINITY, &rtos_task);
+  // ret = xTaskCreateAffinitySet(thread, name, (configSTACK_DEPTH_TYPE)rtos_stacksize, arg, prio, 1 << LWIP_FREERTOS_TCPIP_CORE_AFFINITY, &rtos_task);
+  ret = xTaskCreate(thread, name, (configSTACK_DEPTH_TYPE)rtos_stacksize, arg, prio, &rtos_task);
   LWIP_ASSERT("task creation failed", ret == pdTRUE);
 
   lwip_thread.thread_handle = rtos_task;

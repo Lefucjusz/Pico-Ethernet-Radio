@@ -4,3 +4,6 @@
 [submodule "third-party/lwip/lwip"]
 	path = third-party/lwip/lwip
 	url = git@github.com:lwip-tcpip/lwip.git
+[submodule "third-party/Helix-MP3-Decoder/Helix-MP3-Decoder"]
+	path = third-party/Helix-MP3-Decoder/Helix-MP3-Decoder
+	url = git@github.com:Lefucjusz/Helix-MP3-Decoder.git

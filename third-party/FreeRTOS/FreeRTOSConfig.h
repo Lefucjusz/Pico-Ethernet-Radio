@@ -287,7 +287,7 @@
  * or heap_4.c are included in the build.  This value is defaulted to 4096 bytes
  * but it must be tailored to each application.  Note the heap will appear in
  * the .bss section.  See https://www.freertos.org/a00111.html. */
-#define configTOTAL_HEAP_SIZE                        ( ( size_t ) ( 1024 * 64 ) )
+#define configTOTAL_HEAP_SIZE                        ( ( size_t ) ( 1024 * 128 ) )
 
 /* Set configAPPLICATION_ALLOCATED_HEAP to 1 to have the application allocate
  * the array used as the FreeRTOS heap.  Set to 0 to have the linker allocate
@@ -508,7 +508,7 @@
 
 /* Set configNUMBER_OF_CORES to the number of available processor cores.
  * Defaults to 1 if left undefined. */
- #define configNUMBER_OF_CORES                     2
+ #define configNUMBER_OF_CORES                     1
 
 /* When using SMP (i.e. configNUMBER_OF_CORES is greater than one), set
  * configRUN_MULTIPLE_PRIORITIES to 0 to allow multiple tasks to run
@@ -525,7 +525,7 @@
  * vTaskCoreAffinityGet APIs can be used to set and retrieve which cores a task
  * can run on. If configUSE_CORE_AFFINITY is set to 0 then the FreeRTOS
  * scheduler is free to run any task on any available core. */
-#define configUSE_CORE_AFFINITY                   1
+#define configUSE_CORE_AFFINITY                   0
 
 /* When using SMP with core affinity feature enabled, set
  * configTASK_DEFAULT_CORE_AFFINITY to change the default core affinity mask for

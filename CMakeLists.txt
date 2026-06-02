@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Pico-Ethernet-Radio main.c freertos_hooks.c ethernetif.c player.c)
+add_executable(Pico-Ethernet-Radio main.c freertos_hooks.c)
 
 pico_set_program_name(Pico-Ethernet-Radio "Pico-Ethernet-Radio")
 pico_set_program_version(Pico-Ethernet-Radio "0.1")
@@ -44,20 +44,25 @@ pico_set_program_version(Pico-Ethernet-Radio "0.1")
 pico_enable_stdio_uart(Pico-Ethernet-Radio 1)
 pico_enable_stdio_usb(Pico-Ethernet-Radio 0)
 
+add_subdirectory(audio)
+add_subdirectory(event_manager)
+add_subdirectory(ipc)
+add_subdirectory(logger)
+add_subdirectory(network)
+add_subdirectory(utils)
 add_subdirectory(third-party/FreeRTOS)
 add_subdirectory(third-party/lwip)
-add_subdirectory(drivers)
-add_subdirectory(Helix-MP3-Decoder)
-add_subdirectory(audio_i2s)
+add_subdirectory(third-party/Helix-MP3-Decoder)
 
 # Add the standard library to the build
 target_link_libraries(Pico-Ethernet-Radio
         pico_stdlib
         freertos_kernel
-        lwip
-        ENC28J60
-        helix_mp3
-        audio_i2s
+        ipc
+        network
+        audio
+        event_manager
+        logger
 )
 
 # Add the standard include files to the build

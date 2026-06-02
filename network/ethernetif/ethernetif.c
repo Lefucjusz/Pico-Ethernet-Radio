@@ -5,12 +5,13 @@
 #include <lwip/etharp.h>
 #include <lwip/sys.h>
 #include <string.h>
+#include <logger.h>
 
 #define ETHERNETIF_WORKER_NAME "ethif_worker"
 #define ETHERNETIF_WORKER_STACK_SIZE (1024 * 2)
 #define ETHERNETIF_WORKER_PRIO 1
 
-#define ETHERNETIF_LINK_CHECK_TIMER_NAME "link_check"
+#define ETHERNETIF_LINK_CHECK_TIMER_NAME "link_check" // TODO use IRQ
 #define ETHERNETIF_LINK_CHECK_INTERVAL_MS 500
 
 static const uint8_t mac_addr[] = {0xDE, 0xAD, 0xBA, 0xBE, 0xCA, 0xFE};
@@ -24,11 +25,11 @@ static void ethif_link_check_callback(TimerHandle_t t)
 
     if (current_link_up != last_link_up) {
         if (current_link_up) {
-            printf("Link up\n");
+            // LOG_INFO("Link up\n");
             netif_set_link_up(netif);
         }
         else {
-            printf("Link down\n");
+            // LOG_INFO("Link down\n");
             netif_set_link_down(netif);
         }
 
@@ -41,7 +42,7 @@ static void ethif_worker(void *arg)
     struct netif *netif = arg;
     static uint8_t rx_buf[1520];
 
-    printf("%s: started at core %d\n", __func__, portGET_CORE_ID());
+    LOG_INFO("Started at core %d", portGET_CORE_ID());
 
     /* Create and start link check timer */
     TimerHandle_t link_timer = xTimerCreate(ETHERNETIF_LINK_CHECK_TIMER_NAME, 
@@ -64,18 +65,18 @@ static void ethif_worker(void *arg)
             memcpy(p->payload, rx_buf, p->len);
 
             if (netif->input(p, netif) != ERR_OK) {
-                printf("input failed!\n");
+                LOG_ERROR("input failed!");
                 pbuf_free(p);
             }
         }
         else {
             sys_arch_msleep(10);
 
-            ++cnt;
-            if (cnt > 100) {
-                printf("%s: free stack: %u\n", __func__, uxTaskGetStackHighWaterMark(NULL) * 4);
-                cnt = 0;
-            }
+            // ++cnt;
+            // if (cnt > 100) {
+            //     LOG_INFO("Free stack: %u", uxTaskGetStackHighWaterMark(NULL) * 4);
+            //     cnt = 0;
+            // }
         }
     }
 }
@@ -107,7 +108,7 @@ static void low_level_init(struct netif *netif)
     memcpy(netif->hwaddr, mac_addr, ETH_HWADDR_LEN);
     memcpy(netif->name, "en", 2);
 
-    sys_thread_new(ETHERNETIF_WORKER_NAME, ethif_worker, netif, ETHERNETIF_WORKER_STACK_SIZE, ETHERNETIF_WORKER_PRIO);
+    sys_thread_new(ETHERNETIF_WORKER_NAME, ethif_worker, netif, ETHERNETIF_WORKER_STACK_SIZE, ETHERNETIF_WORKER_PRIO); // TODO FreeRTOS
 }
 
 err_t ethernetif_init(struct netif *netif)

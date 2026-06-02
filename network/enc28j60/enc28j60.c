@@ -2,16 +2,14 @@
 #include "enc28j60_defs.h"
 #include <hardware/spi.h>
 #include <hardware/gpio.h>
-#include <pico/time.h>
 #include <FreeRTOS.h>
 #include <task.h>
 #include <semphr.h>
-#include <stdio.h>
 
-// TODO add IRQ?
+// TODO add IRQ
 
 #define ENC28J60_SPI_PORT       spi1
-#define ENC28J60_SPI_BAUD_RATE  (4 * 1000 * 1000)
+#define ENC28J60_SPI_BAUD_RATE  (24 * 1000 * 1000)
 
 #define ENC28J60_SPI_MOSI_PIN   11
 #define ENC28J60_SPI_MISO_PIN   12
@@ -29,18 +27,16 @@
 
 static uint8_t current_bank;
 static uint16_t next_packet_ptr;
-static SemaphoreHandle_t spi_mutex;
+static SemaphoreHandle_t mutex;
 
 inline static void enc28j60_select(void)
 {
-    xSemaphoreTake(spi_mutex, portMAX_DELAY);
     gpio_put(ENC28J60_SPI_CS_PIN, false);
 }
 
 inline static void enc28j60_deselect(void)
 {
     gpio_put(ENC28J60_SPI_CS_PIN, true);
-    xSemaphoreGive(spi_mutex);
 }
 
 inline static void enc28j60_write(const uint8_t *data, size_t size)
@@ -211,8 +207,8 @@ void enc28j60_init(const uint8_t *mac_addr)
     /* Initialize GPIOs */
     enc28j60_gpio_init();
 
-    /* Create mutex to protect SPI bus access */
-    spi_mutex = xSemaphoreCreateMutex();
+    /* Create mutex to protect API access */
+    mutex = xSemaphoreCreateMutex();
 
     /* Perform software reset */
     enc28j60_system_reset();
@@ -277,6 +273,8 @@ void enc28j60_init(const uint8_t *mac_addr)
 
 void enc28j60_send_packet(const uint8_t *packet, size_t size)
 {
+    xSemaphoreTake(mutex, portMAX_DELAY);
+
     /* Errata Rev. B7, Issue 10 - reset transmit logic before attempting to send a packet */
     enc28j60_bit_field_set(ENC28J60_ECON1, ENC28J60_ECON1_TXRST);
     enc28j60_bit_field_clear(ENC28J60_ECON1, ENC28J60_ECON1_TXRST);
@@ -302,6 +300,8 @@ void enc28j60_send_packet(const uint8_t *packet, size_t size)
     // while ((enc28j60_read_ctrl_reg(ENC28J60_EIR) & ENC28J60_EIR_TXIF) == 0) {}
 
     // TODO check errors
+
+    xSemaphoreGive(mutex);
 }
 
 size_t enc28j60_receive_packet(uint8_t *packet, size_t max_size)
@@ -310,6 +310,8 @@ size_t enc28j60_receive_packet(uint8_t *packet, size_t max_size)
     uint16_t status;
 
     // TODO check if we have any packet
+
+    xSemaphoreTake(mutex, portMAX_DELAY);
 
     /* Set the read pointer to the start of the received packet */
     enc28j60_write_ctrl_reg16(ENC28J60_ERDPTL, next_packet_ptr);
@@ -340,20 +342,40 @@ size_t enc28j60_receive_packet(uint8_t *packet, size_t max_size)
     /* Decrement the packet counter */
     enc28j60_bit_field_set(ENC28J60_ECON2, ENC28J60_ECON2_PKTDEC);
 
+    xSemaphoreGive(mutex);
+
     return size;
 }
 
 bool enc28j60_rx_packets_pending(void)
 {
-    return enc28j60_read_ctrl_reg(ENC28J60_EPKTCNT) > 0;
+    bool pending;
+
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    pending = enc28j60_read_ctrl_reg(ENC28J60_EPKTCNT) > 0;
+    xSemaphoreGive(mutex);
+
+    return pending;
 }
 
 bool enc28j60_is_link_up(void)
 {
-    return (enc28j60_read_phy_reg(ENC28J60_PHSTAT2) & ENC28J60_PHSTAT2_LSTAT) != 0;
+    bool link_up;
+
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    link_up = (enc28j60_read_phy_reg(ENC28J60_PHSTAT2) & ENC28J60_PHSTAT2_LSTAT) != 0;
+    xSemaphoreGive(mutex);
+
+    return link_up;
 }
 
 uint8_t enc28j60_get_revision(void)
 {
-    return enc28j60_read_ctrl_reg(ENC28J60_EREVID);
+    uint8_t revision;
+
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    revision = enc28j60_read_ctrl_reg(ENC28J60_EREVID);
+    xSemaphoreGive(mutex);
+
+    return revision;
 }
