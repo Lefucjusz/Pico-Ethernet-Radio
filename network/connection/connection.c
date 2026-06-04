@@ -7,11 +7,10 @@
 #include <logger.h>
 
 #define CONN_TASK_NAME "connection"
-#define CONN_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 2)
+#define CONN_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 1)
 #define CONN_TASK_PRIO 1
-#define CONN_TASK_CORE_AFFINITY 0
 
-static uint8_t rx_buffer[1024];
+static uint8_t rx_buffer[2048];
 
 static int connection_connect(const char *host, uint16_t port) // TODO non-blocking?
 {
@@ -48,6 +47,9 @@ static int connection_connect(const char *host, uint16_t port) // TODO non-block
         return -1;
     }
 
+    struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
     /* Send request */
     char request[128];
     snprintf(request, sizeof(request), "GET / HTTP/1.0\r\nHost: %s\r\nUser-Agent: lwip-radio\r\nIcy-MetaData: 0\r\n\r\n", host);
@@ -74,6 +76,8 @@ static void connection_task(void *arg)
     ipc_manager_msg_t manager_msg;
     int sock = -1;
     int len;
+
+    bool header = false;
 
     LOG_INFO("Started at core %d", portGET_CORE_ID());
 
@@ -108,30 +112,56 @@ static void connection_task(void *arg)
             }
         }
 
-        /* Streaming: receive data */
-        len = recv(sock, rx_buffer, sizeof(rx_buffer), 0);
-        if (len > 0) {
-            // LOG_DEBUG("Received %d bytes", len);
-            xStreamBufferSend(ipc->recv_buffer, rx_buffer, len, portMAX_DELAY); // TODO this should block for interval?
+        /* TODO fix this abhorrency */
+        if (!header) {
+        restart:
+            size_t bytes = 0;
+            while (bytes < 256) {
+                len = recv(sock, &rx_buffer[bytes], sizeof(rx_buffer) - bytes, 0);
+                bytes += len;
+            }
+
+            char *p = strstr(rx_buffer, "\r\n\r\n");
+            if (!p) {
+                LOG_ERROR("no header!\n");
+                goto restart;
+            }
+            p += 4;
+
+            size_t data_offset = p - (char *)rx_buffer;
+            size_t data_len = bytes - data_offset;
+
+            memmove(rx_buffer, p, bytes - data_len);
+            xStreamBufferSend(ipc->recv_buffer, rx_buffer, data_len, 500);
+
+            header = true;
+
         }
         else {
-            connection_disconnect(&sock);
-            manager_msg.type = IPC_MSG_CONNECTION_FAIL;
-            xQueueSend(ipc->manager_q, &manager_msg, 0);
+
+            /* Streaming: receive data */
+            len = recv(sock, rx_buffer, sizeof(rx_buffer), 0);
+            if (len > 0) {
+                // LOG_DEBUG("Received %d bytes", len);
+                // vTaskDelay(10);
+               xStreamBufferSend(ipc->recv_buffer, rx_buffer, len, 500); // TODO magic numbers
+            }
+            else {
+                LOG_WARN("Connection lost!");
+                connection_disconnect(&sock);
+                xStreamBufferReset(ipc->recv_buffer);
+
+                header = false;
+
+                manager_msg.type = IPC_MSG_CONNECTION_FAIL;
+                xQueueSend(ipc->manager_q, &manager_msg, 0);
+            }
         }
     }
 }
 
 void connection_init(void)
 {
-    // xTaskCreateAffinitySet(connection_task, 
-    //                        CONN_TASK_NAME,
-    //                        CONN_TASK_STACK_SIZE,
-    //                        NULL,
-    //                        CONN_TASK_PRIO,
-    //                        1 << CONN_TASK_CORE_AFFINITY,
-    //                        NULL);
-
     xTaskCreate(connection_task, 
                 CONN_TASK_NAME,
                 CONN_TASK_STACK_SIZE,

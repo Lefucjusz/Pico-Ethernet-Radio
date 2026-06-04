@@ -4,7 +4,7 @@
 #define LWIP_SOCKET                     1
 #define MEM_LIBC_MALLOC                 0
 #define MEM_ALIGNMENT                   4
-#define MEM_SIZE                        4096
+#define MEM_SIZE                        8192
 #define MEMP_NUM_TCP_SEG                32
 #define MEMP_NUM_ARP_QUEUE              10
 #define PBUF_POOL_SIZE                  24
@@ -22,16 +22,16 @@
 #define LWIP_NETCONN                    0
 #define MEM_STATS                       0
 #define SYS_STATS                       0
-#define MEMP_STATS                      0
+#define MEMP_STATS                      1
 #define LINK_STATS                      0
-// #define ETH_PAD_SIZE                2
+#define ETH_PAD_SIZE                    0
 #define LWIP_CHKSUM_ALGORITHM           3
 #define LWIP_DHCP                       1
 #define LWIP_IPV4                       1
 #define LWIP_TCP                        1
 #define LWIP_UDP                        1
 #define LWIP_DNS                        1
-#define LWIP_TCP_KEEPALIVE              1
+#define LWIP_TCP_KEEPALIVE              0
 #define LWIP_NETIF_TX_SINGLE_PBUF       1
 #define DHCP_DOES_ARP_CHECK             0
 #define LWIP_DHCP_DOES_ACD_CHECK        0
@@ -42,7 +42,7 @@
 #define LWIP_STATS_DISPLAY              1
 #endif
 
-#define TCPIP_THREAD_STACKSIZE          (4 * 1024)
+#define TCPIP_THREAD_STACKSIZE          (2 * 1024)
 #define DEFAULT_THREAD_STACKSIZE        1024
 #define DEFAULT_RAW_RECVMBOX_SIZE       8
 #define TCPIP_MBOX_SIZE                 8
@@ -52,9 +52,9 @@
 #define DEFAULT_TCP_RECVMBOX_SIZE       TCPIP_MBOX_SIZE
 #define DEFAULT_ACCEPTMBOX_SIZE         TCPIP_MBOX_SIZE
 
-// not necessary, can be done either way TODO what?
-#define LWIP_TCPIP_CORE_LOCKING_INPUT   0
+#define LWIP_SO_RCVTIMEO                1
 
+#define LWIP_TCPIP_CORE_LOCKING_INPUT   0
 #define LWIP_TCPIP_CORE_LOCKING         0
 
 #define ETHARP_DEBUG                    LWIP_DBG_OFF
@@ -69,7 +69,7 @@
 #define IP_REASS_DEBUG                  LWIP_DBG_OFF
 #define RAW_DEBUG                       LWIP_DBG_OFF
 #define MEM_DEBUG                       LWIP_DBG_OFF
-#define MEMP_DEBUG                      LWIP_DBG_OFF
+#define MEMP_DEBUG                      LWIP_DBG_ON
 #define SYS_DEBUG                       LWIP_DBG_OFF
 #define TCP_DEBUG                       LWIP_DBG_OFF
 #define TCP_INPUT_DEBUG                 LWIP_DBG_OFF

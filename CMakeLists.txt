@@ -46,6 +46,7 @@ pico_enable_stdio_usb(Pico-Ethernet-Radio 0)
 
 add_subdirectory(audio)
 add_subdirectory(event_manager)
+add_subdirectory(gpio_irq)
 add_subdirectory(ipc)
 add_subdirectory(logger)
 add_subdirectory(network)
@@ -62,7 +63,9 @@ target_link_libraries(Pico-Ethernet-Radio
         network
         audio
         event_manager
+        gpio_irq
         logger
+        utils
 )
 
 # Add the standard include files to the build

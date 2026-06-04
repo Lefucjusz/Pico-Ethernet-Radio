@@ -11,11 +11,13 @@
 #define AUDIO_I2S_BITS_PER_BYTE 8
 #define AUDIO_I2S_CLKDIV_FRAC_PART 256ULL
 
-static uint32_t audio_i2s_compute_clkdiv(audio_i2s_t *i2s)
+static void audio_i2s_set_clkdiv(audio_i2s_t *i2s)
 {
     const uint64_t sysclk_freq = clock_get_hz(clk_sys);
     const uint64_t bclk_freq = i2s->config->sample_rate * i2s->config->sample_size * AUDIO_I2S_BITS_PER_BYTE * AUDIO_I2S_CHANNELS;
-    return (AUDIO_I2S_CLKDIV_FRAC_PART * sysclk_freq) / (2ULL * bclk_freq);
+    const uint32_t divider = (uint32_t)((AUDIO_I2S_CLKDIV_FRAC_PART * sysclk_freq) / (2ULL * bclk_freq));
+
+    pio_sm_set_clkdiv_int_frac(i2s->config->pio, i2s->sm, divider >> 8U, divider & 0xFFU);
 }
 
 static void audio_i2s_sm_init(audio_i2s_t *i2s)
@@ -23,8 +25,7 @@ static void audio_i2s_sm_init(audio_i2s_t *i2s)
     i2s->sm = pio_claim_unused_sm(i2s->config->pio, true);
     i2s->sm_offset = pio_add_program(i2s->config->pio, &i2s_out_master_program);
     i2s_out_master_program_init(i2s->config->pio, i2s->sm, i2s->sm_offset, i2s->config->data_pin, i2s->config->clock_pin_base);
-    const uint32_t divider = audio_i2s_compute_clkdiv(i2s);
-    pio_sm_set_clkdiv_int_frac(i2s->config->pio, i2s->sm, divider >> 8U, divider & 0xFFU);
+    audio_i2s_set_clkdiv(i2s);
 }
 
 static void audio_i2s_sm_deinit(audio_i2s_t *i2s)
@@ -115,6 +116,12 @@ void audio_i2s_deinit(audio_i2s_t *i2s)
 void audio_i2s_enable(audio_i2s_t *i2s, bool enabled)
 {
     pio_sm_set_enabled(i2s->config->pio, i2s->sm, enabled);
+}
+
+void audio_i2s_set_sample_rate(audio_i2s_t *i2s, uint32_t sample_rate)
+{
+    i2s->config->sample_rate = sample_rate;
+    audio_i2s_set_clkdiv(i2s);
 }
 
 void audio_i2s_clear_dma_irq(audio_i2s_t *i2s)

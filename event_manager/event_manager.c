@@ -7,9 +7,8 @@
 #include <logger.h>
 
 #define EVT_MGR_TASK_NAME "event_manager"
-#define EVT_MGR_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 2)
+#define EVT_MGR_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 1)
 #define EVT_MGR_TASK_PRIO 1
-#define EVT_MGR_TASK_CORE_AFFINITY 0
 
 typedef enum
 {
@@ -19,14 +18,10 @@ typedef enum
     EVT_MGR_STATE_WAIT_DEC_READY,
     EVT_MGR_STATE_WAIT_DEC_RUNNING,
     EVT_MGR_STATE_WAIT_PLAYER_RUNNING,
+    EVT_MGR_STATE_PLAYER_RUNNING
 } evt_mgr_state_t;
 
-typedef struct 
-{
-    evt_mgr_state_t state;
-} evt_mgr_ctx_t;
-
-static evt_mgr_ctx_t ctx;
+static evt_mgr_state_t state;
 
 static void event_manager_task(void *arg)
 {
@@ -37,18 +32,18 @@ static void event_manager_task(void *arg)
     ipc_decoder_msg_t dec_msg;
     ipc_player_msg_t player_msg;
 
-    uint16_t sample_rate;
+    LOG_INFO("Started at core %d", portGET_CORE_ID());
 
     while (1) {
         xQueueReceive(ipc->manager_q, &msg, portMAX_DELAY);
 
         // vTaskDelay(1000); // Wait before each transition
 
-        switch (ctx.state) {
+        switch (state) {
             case EVT_MGR_STATE_WAIT_LINK_UP:
                 if (msg.type == IPC_MSG_NETWORK_LINK_UP) {
                     LOG_INFO("Link UP!");
-                    ctx.state = EVT_MGR_STATE_WAIT_IP;
+                    state = EVT_MGR_STATE_WAIT_IP;
                 }
                 break;
 
@@ -61,11 +56,11 @@ static void event_manager_task(void *arg)
                     conn_msg.host = "mp3.polskieradio.pl";
                     xQueueSend(ipc->conn_q, &conn_msg, 0);
 
-                    ctx.state = EVT_MGR_STATE_WAIT_CONN;
+                    state = EVT_MGR_STATE_WAIT_CONN;
                 }
                 else if (msg.type == IPC_MSG_NETWORK_LINK_DOWN) {
                     LOG_INFO("Link DOWN!");
-                    ctx.state = EVT_MGR_STATE_WAIT_LINK_UP;
+                    state = EVT_MGR_STATE_WAIT_LINK_UP;
                 }
                 break;
 
@@ -77,48 +72,54 @@ static void event_manager_task(void *arg)
                 else if (msg.type == IPC_MSG_CONNECTION_SUCCESS) {
                     LOG_INFO("Connection succeeded!");
 
-                    dec_msg.type = IPC_MSG_DECODER_INIT;
-                    xQueueSend(ipc->decoder_q, &dec_msg, 0);
-
-                    ctx.state = EVT_MGR_STATE_WAIT_DEC_READY;
-                }
-                break;
-
-            case EVT_MGR_STATE_WAIT_DEC_READY:
-                if (msg.type == IPC_MSG_DECODER_FAIL) {
-                    LOG_FATAL("Decoder init failed!");
-                    configASSERT(0); // TODO at this development stage it's fatal
-                }
-                else if (msg.type == IPC_MSG_DECODER_READY) {
-                    sample_rate = (uint16_t)msg.arg;
-
-                    LOG_INFO("Decoder ready, sample rate: %d!", (int)sample_rate);
-
                     dec_msg.type = IPC_MSG_DECODER_START;
                     xQueueSend(ipc->decoder_q, &dec_msg, 0);
 
-                    ctx.state = EVT_MGR_STATE_WAIT_DEC_RUNNING;
+                    state = EVT_MGR_STATE_WAIT_DEC_RUNNING;
                 }
                 break;
 
             case EVT_MGR_STATE_WAIT_DEC_RUNNING:
                 if (msg.type == IPC_MSG_DECODER_RUNNING) {
-                    LOG_INFO("Decoder running!");
+                    LOG_INFO("Decoder running, sample rate %dHz!", (uint16_t)msg.arg);
 
                     player_msg.type = IPC_MSG_PLAYER_START;
-                    player_msg.arg = sample_rate;
+                    player_msg.arg = (uint16_t)msg.arg; // Sample rate
                     xQueueSend(ipc->player_q, &player_msg, 0);
+
+                    state = EVT_MGR_STATE_WAIT_PLAYER_RUNNING;
                 }
                 break;
 
             case EVT_MGR_STATE_WAIT_PLAYER_RUNNING:
                 if (msg.type == IPC_MSG_PLAYER_RUNNING) {
                     LOG_INFO("Player running!");
+
+                    state = EVT_MGR_STATE_PLAYER_RUNNING;
+                }
+                break;
+
+            case EVT_MGR_STATE_PLAYER_RUNNING:
+                LOG_INFO("Message: %d", msg.type);
+                if (msg.type == IPC_MSG_NETWORK_LINK_DOWN) {
+
+                    player_msg.type = IPC_MSG_PLAYER_STOP;
+                    xQueueSend(ipc->player_q, &player_msg, 0);
+
+                    dec_msg.type = IPC_MSG_DECODER_STOP;
+                    xQueueSend(ipc->decoder_q, &dec_msg, 0);
+
+                    conn_msg.type = IPC_MSG_CONNECTION_STOP;
+                    xQueueSend(ipc->conn_q, &conn_msg, 0);
+
+                    LOG_INFO("going to wait_link_up");
+
+                    state = EVT_MGR_STATE_WAIT_LINK_UP;
                 }
                 break;
 
             default:
-                LOG_ERROR("Invalid state: %d", ctx.state);
+                LOG_ERROR("Invalid state: %d", state);
                 break;
         }
     }
@@ -126,18 +127,10 @@ static void event_manager_task(void *arg)
 
 void event_manager_init(void)
 {
-    // xTaskCreateAffinitySet(event_manager_task, 
-    //                        EVT_MGR_TASK_NAME,
-    //                        EVT_MGR_TASK_STACK_SIZE,
-    //                        NULL,
-    //                        EVT_MGR_TASK_PRIO,
-    //                        1 << EVT_MGR_TASK_CORE_AFFINITY,
-    //                        NULL);
-
-    xTaskCreate(event_manager_task, 
-                           EVT_MGR_TASK_NAME,
-                           EVT_MGR_TASK_STACK_SIZE,
-                           NULL,
-                           EVT_MGR_TASK_PRIO,
-                           NULL);
+    xTaskCreate(event_manager_task,
+                EVT_MGR_TASK_NAME,
+                EVT_MGR_TASK_STACK_SIZE,
+                NULL,
+                EVT_MGR_TASK_PRIO,
+                NULL);
 }

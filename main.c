@@ -1,15 +1,20 @@
 #include <pico/stdlib.h>
+#include <hardware/clocks.h>
 #include <FreeRTOS.h>
 #include <task.h>
-#include <logger.h>
 #include <ipc_context.h>
 #include <network.h>
 #include <connection.h>
 #include <decoder.h>
 #include <player.h>
 #include <event_manager.h>
-#include <hardware/clocks.h>
-#include <pico/multicore.h>
+#include <gpio_irq.h>
+#include <utils.h>
+#include <logger.h>
+
+#define BOOTSTRAP_TASK_NAME "bootstrap"
+#define BOOTSTRAP_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 1)
+#define BOOTSTRAP_TASK_PRIO 1
 
 #define LED_PIN 25
 
@@ -24,13 +29,11 @@ static void bootstrap_task(void *arg)
     connection_init();
     decoder_init();
     player_init();
-
     event_manager_init();
 
+    /* Heartbeat */
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
-
-    /* Heartbeat */
     while (1) {
         gpio_xor_mask(1 << LED_PIN);
         vTaskDelay(1000);
@@ -39,15 +42,19 @@ static void bootstrap_task(void *arg)
 
 int main(void)
 {
-    set_sys_clock_khz(133000, true);
+    timer_hw->dbgpause = 0;
+
+    set_sys_clock_khz(150000, true);
 
     stdio_init_all();
+    gpio_irq_init();
 
-    multicore_reset_core1();
-
-    // xTaskCreateAffinitySet(bootstrap_task, "bootstrap", 2048 / sizeof(uint32_t), NULL, 1, 1 << 0, NULL); // TODO defines
-
-    xTaskCreate(bootstrap_task, "bootstrap", 2048 / sizeof(uint32_t), NULL, 1, NULL);
+    xTaskCreate(bootstrap_task,
+                BOOTSTRAP_TASK_NAME,
+                BOOTSTRAP_TASK_STACK_SIZE,
+                NULL,
+                BOOTSTRAP_TASK_PRIO,
+                NULL);
 
     vTaskStartScheduler();
 

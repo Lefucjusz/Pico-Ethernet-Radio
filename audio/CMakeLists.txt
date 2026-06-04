@@ -1,10 +1,10 @@
 add_library(audio STATIC)
 
-pico_generate_pio_header(audio 
+pico_generate_pio_header(audio
     ${CMAKE_CURRENT_LIST_DIR}/audio_i2s/audio_i2s.pio
 )
 
-target_sources(audio 
+target_sources(audio
     PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/audio_i2s/audio_i2s.c
         ${CMAKE_CURRENT_LIST_DIR}/decoder/decoder.c
@@ -14,7 +14,7 @@ target_sources(audio
 target_include_directories(audio
     PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
-    PUBLIC 
+    PUBLIC
         ${CMAKE_CURRENT_LIST_DIR}/audio_i2s
         ${CMAKE_CURRENT_LIST_DIR}/decoder
         ${CMAKE_CURRENT_LIST_DIR}/player

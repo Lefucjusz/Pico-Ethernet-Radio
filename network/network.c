@@ -1,6 +1,5 @@
 #include "network.h"
 #include <lwip/tcpip.h>
-#include <lwip/dhcp.h>
 #include <ethernetif.h>
 #include <ipc_context.h>
 #include <ipc_message.h>
@@ -40,6 +39,4 @@ void network_init(void)
     netif_set_up(&ctx.netif);
     netif_set_status_callback(&ctx.netif, netif_status_callback);
     netif_set_link_callback(&ctx.netif, netif_link_callback);
-
-    dhcp_start(&ctx.netif);
 }

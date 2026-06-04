@@ -24,6 +24,7 @@ target_link_libraries(network
         logger
         lwip
         utils
+        gpio_irq
     PUBLIC
         ipc
 )

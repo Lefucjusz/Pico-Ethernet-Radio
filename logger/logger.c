@@ -59,6 +59,6 @@ void logger_log(logger_level_t level, const char *file, int line, const char *fu
 
     printf("%s\n", line_buffer);
 
-out_error:    
+out_error:
     xSemaphoreGive(mutex);
 }

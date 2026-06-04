@@ -31,12 +31,14 @@ typedef struct audio_i2s_pio_ctx
     uint dma_data_ch;
     ALIGN(int16_t *ctrl_blocks[2], 8);
     int16_t *pcm_buffer;
-    const audio_i2s_config_t *config;
+    audio_i2s_config_t *config;
 } audio_i2s_t;
 
 int audio_i2s_init(audio_i2s_t *i2s);
 void audio_i2s_deinit(audio_i2s_t *i2s);
 void audio_i2s_enable(audio_i2s_t *i2s, bool enabled);
+
+void audio_i2s_set_sample_rate(audio_i2s_t *i2s, uint32_t sample_rate);
 
 void audio_i2s_clear_dma_irq(audio_i2s_t *i2s);
 int16_t *audio_i2s_get_next_buffer(audio_i2s_t *i2s);
