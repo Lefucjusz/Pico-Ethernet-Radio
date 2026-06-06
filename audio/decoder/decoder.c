@@ -10,7 +10,7 @@
 #define DECODER_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 2)
 #define DECODER_TASK_PRIO 1
 
-#define DECODER_BUFFER_SIZE_FRAMES 1024
+#define DECODER_BUFFER_SIZE_FRAMES (1024 * 1)
 #define DECODER_BUFFER_SIZE_BYTES AUDIO_FRAMES_TO_BYTES(DECODER_BUFFER_SIZE_FRAMES)
 
 #define DECODER_STATE_PROCESSING_PERIOD_TICKS pdMS_TO_TICKS(500)
@@ -81,9 +81,6 @@ static void decoder_task(void *arg)
 
     ipc_decoder_msg_t msg;
 
-    int cnt = 0;
-    size_t bytes_sum = 0;
-
     LOG_INFO("Started at core %d", portGET_CORE_ID());
 
     while (1) {
@@ -145,22 +142,12 @@ static void decoder_task(void *arg)
                 }
                 else {
                     const size_t frames_read = helix_mp3_read_pcm_frames_s16(&ctx.mp3, (int16_t *)ctx.pcm_buffer, DECODER_BUFFER_SIZE_FRAMES);
-                    xStreamBufferSend(ctx.ipc->pcm_buffer, ctx.pcm_buffer, AUDIO_FRAMES_TO_BYTES(frames_read), 100); // TODO magic number
+                    xStreamBufferSend(ctx.ipc->pcm_buffer, ctx.pcm_buffer, AUDIO_FRAMES_TO_BYTES(frames_read), 1000); // TODO magic number
                 }
                 break;
 
             default:
                 break;
-        }
-
-
-
-        ++cnt;
-        bytes_sum += bytes_available;
-        if (cnt >= 100) {
-            LOG_DEBUG("Mean recv buffer level: %d%%", (100 * bytes_sum / cnt) / (ctx.watermark_low * 4));
-            cnt = 0;
-            bytes_sum = 0;
         }
     }
 }

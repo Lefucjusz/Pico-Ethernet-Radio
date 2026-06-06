@@ -98,9 +98,6 @@ static void player_task(void *arg)
     ipc_player_msg_t msg;
     int err;
 
-    int cnt = 0;
-    size_t bytes_sum = 0;
-
     LOG_INFO("Started at core %d", portGET_CORE_ID());
 
     /* TODO defines */
@@ -160,17 +157,6 @@ static void player_task(void *arg)
 
         /* Periodic state processing, runs at any received event or every PLAYER_STATE_PROCESSING_PERIOD_TICKS */
         const size_t bytes_available = xStreamBufferBytesAvailable(ctx.ipc->pcm_buffer);
-
-        {
-            ++cnt;
-            bytes_sum += bytes_available;
-            if (cnt >= 100) {
-                LOG_DEBUG("Mean PCM buffer level: %d%%", (100 * bytes_sum / cnt) / (ctx.watermark_low * 4));
-                cnt = 0;
-                bytes_sum = 0;
-                vTaskDelay(1);
-            }
-        }
 
         switch (ctx.state) {
             case PLAYER_BUFFERING:

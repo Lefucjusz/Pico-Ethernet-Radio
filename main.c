@@ -2,6 +2,7 @@
 #include <hardware/clocks.h>
 #include <FreeRTOS.h>
 #include <task.h>
+#include <stream_buffer.h>
 #include <ipc_context.h>
 #include <network.h>
 #include <connection.h>
@@ -17,6 +18,41 @@
 #define BOOTSTRAP_TASK_PRIO 1
 
 #define LED_PIN 25
+
+static void update_stream_bufs_state(void)
+{
+    static size_t cnt;
+    static size_t recv_sum;
+    static size_t pcm_sum;
+
+    const ipc_ctx_t *ipc = ipc_context_get();
+
+    const size_t recv_total = xStreamBufferBytesAvailable(ipc->recv_buffer) + xStreamBufferSpacesAvailable(ipc->recv_buffer);
+    const size_t pcm_total = xStreamBufferBytesAvailable(ipc->pcm_buffer) + xStreamBufferSpacesAvailable(ipc->pcm_buffer);
+
+    recv_sum += xStreamBufferBytesAvailable(ipc->recv_buffer);
+    pcm_sum += xStreamBufferBytesAvailable(ipc->pcm_buffer);
+
+    ++cnt;
+    if (cnt >= 100) {
+        LOG_DEBUG("Mean TCP buffer level: %u%%", (100 * recv_sum / cnt) / recv_total);
+        LOG_DEBUG("Mean PCM buffer level: %u%%", (100 * pcm_sum / cnt) / pcm_total);
+        cnt = 0;
+        recv_sum = 0;
+        pcm_sum = 0;
+    }
+}
+
+static void update_led_state(void)
+{
+    static size_t cnt;
+
+    ++cnt;
+    if (cnt >= 10) {
+        gpio_xor_mask(1 << LED_PIN);
+        cnt = 0;
+    }
+}
 
 static void bootstrap_task(void *arg)
 {
@@ -35,8 +71,9 @@ static void bootstrap_task(void *arg)
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
     while (1) {
-        gpio_xor_mask(1 << LED_PIN);
-        vTaskDelay(1000);
+        update_stream_bufs_state();
+        update_led_state();
+        vTaskDelay(100);
     }
 }
 

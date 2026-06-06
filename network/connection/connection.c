@@ -132,7 +132,7 @@ static void connection_task(void *arg)
             size_t data_len = bytes - data_offset;
 
             memmove(rx_buffer, p, bytes - data_len);
-            xStreamBufferSend(ipc->recv_buffer, rx_buffer, data_len, 500);
+            xStreamBufferSend(ipc->recv_buffer, rx_buffer, data_len, 1000);
 
             header = true;
 
@@ -144,7 +144,7 @@ static void connection_task(void *arg)
             if (len > 0) {
                 // LOG_DEBUG("Received %d bytes", len);
                 // vTaskDelay(10);
-               xStreamBufferSend(ipc->recv_buffer, rx_buffer, len, 500); // TODO magic numbers
+               xStreamBufferSend(ipc->recv_buffer, rx_buffer, len, 1000); // TODO magic numbers
             }
             else {
                 LOG_WARN("Connection lost!");
@@ -162,10 +162,10 @@ static void connection_task(void *arg)
 
 void connection_init(void)
 {
-    xTaskCreate(connection_task, 
+    xTaskCreate(connection_task,
                 CONN_TASK_NAME,
                 CONN_TASK_STACK_SIZE,
                 NULL,
                 CONN_TASK_PRIO,
-                NULL);                       
+                NULL);
 }
