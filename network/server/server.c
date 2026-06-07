@@ -49,6 +49,19 @@ static void server_send_response(int client, const char *resp, size_t size)
     }
 }
 
+static void server_send_ok(int client)
+{
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: 2\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "OK";
+
+    server_send_response(client, resp, strlen(resp));
+}
+
 static void server_send_page(int client)
 {
     static char tmp[128];
@@ -67,7 +80,7 @@ static void server_send_page(int client)
     server_send_response(client, webpage, strlen(webpage));
 }
 
-static int server_parse_value(const char *req)
+static int server_parse_int(const char *req)
 {
     const char *q = strchr(req, '?');
     if (q == NULL) {
@@ -87,18 +100,64 @@ static int server_parse_value(const char *req)
     return atoi(q + 6);
 }
 
-static void server_handle_request(int client, const char *req)
+static const char *server_parse_url(const char *req)
+{
+    static char url[128];
+
+    const char *q = strchr(req, '?');
+    if (q == NULL) {
+        return NULL;
+    }
+    ++q;
+
+    const char *end = strchr(q, ' ');
+    if (end == NULL) {
+        return NULL;
+    }
+    
+    if (strncmp(q, "url=", 4) != 0) {
+        return NULL;
+    }
+
+    const size_t len = end - q;
+    strlcpy(url, q + 4, UTILS_MIN(len, sizeof(url)));
+
+    return url;
+}
+
+static void server_handle_request(int client, char *req)
 {
     if (strncmp(req, "GET / ", 6) == 0) { // TODO magic numbers
         server_send_page(client);
     }
-    else if (strncmp(req, "GET /api/volume", 15) == 0) {
-        const uint16_t volume = server_parse_value(req);
-
-        // LOG_DEBUG("Got volume request, value: %d", volume);
+    else if (strncmp(req, "GET /volume", 11) == 0) {
+        const uintptr_t volume = server_parse_int(req);
         
-        ipc_player_msg_t msg = {.type = IPC_MSG_PLAYER_SET_VOLUME, .arg = volume};
-        xQueueSend(ipc_context_get()->player_q, &msg, 0);
+        ipc_manager_msg_t msg = {.type = IPC_MSG_UI_SET_VOLUME, .arg = (void *)volume};
+        xQueueSend(ipc_context_get()->manager_q, &msg, 0);
+
+        server_send_ok(client);
+    }
+    else if (strncmp(req, "GET /start", 10) == 0) {
+        const char *url = server_parse_url(req);
+        if (url == NULL) {
+            LOG_ERROR("Malformed URL!");
+        }
+        else {
+            ipc_manager_msg_t msg;
+            msg.type = IPC_MSG_UI_START_PLAYBACK;
+            msg.arg = (void *)url;
+
+            xQueueSend(ipc_context_get()->manager_q, &msg, 0);
+        }
+
+        server_send_ok(client);
+    }
+    else if (strncmp(req, "GET /stop", 9) == 0) {
+        ipc_manager_msg_t msg = { .type = IPC_MSG_UI_STOP_PLAYBACK };
+        xQueueSend(ipc_context_get()->manager_q, &msg, 0);
+        
+        server_send_ok(client);
     }
 }
 

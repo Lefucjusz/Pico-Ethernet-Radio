@@ -10,3 +10,5 @@
 #define UTILS_MIN(x, y) (((x) < (y)) ? (x) : (y))
 #define UTILS_MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define UTILS_CLAMP(val, min, max) UTILS_MIN(max, UTILS_MAX(val, min))
+
+#define UTILS_ARRAY_COUNT(x) (sizeof(x) / sizeof((x)[0]))

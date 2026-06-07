@@ -5,6 +5,7 @@
 #include <ipc_context.h>
 #include <ipc_message.h>
 #include <logger.h>
+#include <stdlib.h>
 
 #define EVT_MGR_TASK_NAME "event_manager"
 #define EVT_MGR_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 1)
@@ -14,22 +15,42 @@ typedef enum
 {
     EVT_MGR_STATE_GET_LINK,
     EVT_MGR_STATE_GET_IP,
+    EVT_MGR_STATE_READY,
     EVT_MGR_STATE_CONNECTING,
     EVT_MGR_STATE_STARTING_DECODER,
     EVT_MGR_STATE_STARTING_PLAYER,
-    EVT_MGR_STATE_PLAYBACK_RUNNING
+    EVT_MGR_STATE_PLAYBACK_RUNNING,
+    EVT_MGR_COUNT
 } evt_mgr_state_t;
 
 static const char *evt_mgr_state_str[] = {
     "GET_LINK",
     "GET_IP",
+    "READY",
     "CONNECTING",
     "STARTING_DECODER",
     "STARTING_PLAYER",
     "PLAYBACK_RUNNING"
 };
 
+static_assert(EVT_MGR_COUNT == UTILS_ARRAY_COUNT(evt_mgr_state_str), "States enum and name look-up table out of sync!");
+
 static evt_mgr_state_t state;
+
+static void event_manager_parse_link(const char *link, char *url, uint16_t *port)
+{
+    const char *port_sep = strrchr(link, ':');
+    if (port_sep == NULL) {
+        *port = 80;
+    }
+    else {
+        *port = atoi(port_sep + 1);
+    }
+
+    const size_t url_len = port_sep - link;
+    memcpy(url, link, url_len);
+    url[url_len] = '\0';
+}
 
 static void event_manager_task(void *arg)
 {
@@ -41,6 +62,9 @@ static void event_manager_task(void *arg)
     ipc_player_msg_t player_msg;
 
     evt_mgr_state_t next_state;
+
+    char stream_url[64];
+    uint16_t stream_port;
 
     LOG_INFO("Started at core %d", portGET_CORE_ID());
 
@@ -57,12 +81,26 @@ static void event_manager_task(void *arg)
 
             case EVT_MGR_STATE_GET_IP:
                 if (msg.type == IPC_MSG_NETWORK_GOT_IP) {
+                    LOG_INFO("Got IP!");
+                    next_state = EVT_MGR_STATE_READY;
+                }
+                break;
+
+            case EVT_MGR_STATE_READY:
+                if (msg.type == IPC_MSG_UI_START_PLAYBACK) {
+                    event_manager_parse_link(msg.arg, stream_url, &stream_port);
+
                     conn_msg.type = IPC_MSG_CONNECTION_START;
-                    conn_msg.port = 8904;
-                    conn_msg.host = "mp3.polskieradio.pl";
+                    conn_msg.host = stream_url;
+                    conn_msg.port = stream_port;
                     xQueueSend(ipc->conn_q, &conn_msg, 0);
 
                     next_state = EVT_MGR_STATE_CONNECTING;
+                }
+                else if (msg.type == IPC_MSG_UI_SET_VOLUME) {
+                    player_msg.type = IPC_MSG_PLAYER_SET_VOLUME;
+                    player_msg.arg = (uintptr_t)msg.arg;
+                    xQueueSend(ipc->player_q, &player_msg, 0);
                 }
                 break;
 
@@ -83,10 +121,10 @@ static void event_manager_task(void *arg)
 
             case EVT_MGR_STATE_STARTING_DECODER:
                 if (msg.type == IPC_MSG_DECODER_RUNNING) {
-                    LOG_INFO("Decoder running, sample rate %dHz!", (uint32_t)msg.arg);
+                    LOG_INFO("Decoder running, sample rate %uHz!", (uintptr_t)msg.arg);
 
                     player_msg.type = IPC_MSG_PLAYER_START;
-                    player_msg.arg = (uint32_t)msg.arg; // Sample rate
+                    player_msg.arg = (uintptr_t)msg.arg; // Sample rate
                     xQueueSend(ipc->player_q, &player_msg, 0);
 
                     next_state = EVT_MGR_STATE_STARTING_PLAYER;
@@ -129,12 +167,30 @@ static void event_manager_task(void *arg)
                     xQueueSend(ipc->decoder_q, &dec_msg, 0);
 
                     conn_msg.type = IPC_MSG_CONNECTION_START;
-                    conn_msg.port = 8904;
-                    conn_msg.host = "mp3.polskieradio.pl";
+                    conn_msg.host = stream_url;
+                    conn_msg.port = stream_port;
                     xQueueSend(ipc->conn_q, &conn_msg, 0);
 
                     next_state = EVT_MGR_STATE_CONNECTING;
                 }
+                else if (msg.type == IPC_MSG_UI_SET_VOLUME) {
+                    player_msg.type = IPC_MSG_PLAYER_SET_VOLUME;
+                    player_msg.arg = (uintptr_t)msg.arg;
+                    xQueueSend(ipc->player_q, &player_msg, 0);
+                }
+                else if (msg.type == IPC_MSG_UI_STOP_PLAYBACK) {
+                    player_msg.type = IPC_MSG_PLAYER_STOP;
+                    xQueueSend(ipc->player_q, &player_msg, 0);
+
+                    dec_msg.type = IPC_MSG_DECODER_STOP;
+                    xQueueSend(ipc->decoder_q, &dec_msg, 0);
+
+                    conn_msg.type = IPC_MSG_CONNECTION_STOP;
+                    xQueueSend(ipc->conn_q, &conn_msg, 0);
+
+                    next_state = EVT_MGR_STATE_READY;
+                }
+                // TODO stop from UI
                 break;
 
             default:

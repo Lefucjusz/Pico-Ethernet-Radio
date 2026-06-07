@@ -23,6 +23,10 @@ typedef enum
     IPC_MSG_PLAYER_BUFFERING,
     IPC_MSG_PLAYER_DMA_REQUEST, // Internal message
 
+    IPC_MSG_UI_START_PLAYBACK,
+    IPC_MSG_UI_STOP_PLAYBACK,
+    IPC_MSG_UI_SET_VOLUME,
+
 
 
     // Manager -> module messages

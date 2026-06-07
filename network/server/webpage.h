@@ -1,47 +1,269 @@
-#pragma once
+const char webpage[] = R"HTML(
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RP2040 Internet Radio</title>
 
-static const char *webpage = 
-    "<!DOCTYPE html>"
-    "<html>"
-        "<head>"
-            "<title>RP2040 Internet Radio</title>"
-        "</head>"
+    <style>
+    :root {
+        --bg: #0b0b0b;
+        --card: #161616;
+        --display: #0d1117;
+        --border: #303030;
+        --text: #d8d8d8;
+        --green: #64ff64;
+        --green-dark: #1b5e20;
+        --red-dark: #7f1d1d;
+    }
 
-        "<body>"
-            "<h2>RP2040 Internet Radio</h2>"
+    * {
+        box-sizing: border-box;
+    }
 
-            "<p>Volume</p>"
-            "<input type='range' min='0' max='100' value='50' id='volumeSlider' />"
-            "<span id='volumeLabel'>50</span>"
+    body {
+        margin: 0;
+        padding: 20px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", Arial, sans-serif;
+    }
 
-            "<script>"
-                "let slider = document.getElementById('volumeSlider');"
-                "let label = document.getElementById('volumeLabel');"
+    .card {
+        max-width: 500px;
+        margin: 0 auto;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 0 30px rgba(0,0,0,0.5);
+    }
 
-                "let lastSent = 0;"
-                "let idleTimeout = null;"
+    .title {
+        text-align: center;
+        font-size: 1.8em;
+        font-weight: bold;
+        margin-bottom: 20px;
+    }
 
-                "function send(value) {"
-                "    fetch(`/api/volume?value=${value}`);"
-                "}"
+    .display {
+        background: var(--display);
+        border: 1px solid #263238;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 20px;
+        font-family: Consolas, monospace;
+    }
 
-                "slider.oninput = (e) => {"
-                "    const value = e.target.value;"
-                "    label.innerHTML = value;"
+    .label {
+        color: #8aa0aa;
+        font-size: 0.8em;
+        margin-bottom: 6px;
+    }
 
-                "    const now = Date.now();"
+    .value {
+        word-break: break-all;
+        margin-bottom: 14px;
+    }
 
-                "    if (now - lastSent > 250) {"
-                "        send(value);"
-                "        lastSent = now;"
-                "    }"
+    .playing {
+        color: var(--green);
+    }
 
-                "    clearTimeout(idleTimeout);"
-                "    idleTimeout = setTimeout(() => {"
-                "        send(value);"
-                "        lastSent = Date.now();"
-                "    }, 250);"
-                "};"
-            "</script>"
-        "</body>"
-    "</html>";
+    .stopped {
+        color: #ff7070;
+    }
+
+    .volume-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-weight: bold;
+    }
+
+    input[type=text] {
+        width: 100%;
+        padding: 12px;
+        background: #222;
+        color: white;
+        border: 1px solid #444;
+        border-radius: 10px;
+        font-size: 1em;
+    }
+
+    input[type=text]:focus {
+        outline: none;
+        border-color: var(--green);
+    }
+
+    input[type=range] {
+        width: 100%;
+        accent-color: var(--green);
+        margin-bottom: 20px;
+    }
+
+    .buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+        margin-bottom: 20px;
+    }
+
+    button {
+        flex: 1;
+        border: none;
+        color: white;
+        padding: 14px;
+        border-radius: 10px;
+        cursor: pointer;
+        font-size: 1em;
+        font-weight: bold;
+    }
+
+    .play-btn {
+        background: var(--green-dark);
+    }
+
+    .play-btn:hover {
+        filter: brightness(1.15);
+    }
+
+    .stop-btn {
+        background: var(--red-dark);
+    }
+
+    .stop-btn:hover {
+        filter: brightness(1.15);
+    }
+
+    .status {
+        margin-top: 15px;
+        padding: 12px;
+        background: #222;
+        border-radius: 10px;
+        border: 1px solid #333;
+        color: #aaa;
+        font-size: 0.95em;
+    }
+    </style>
+    </head>
+
+    <body>
+
+    <div class="card">
+
+        <div class="title">📻 RP2040 INTERNET RADIO</div>
+
+        <div class="display">
+
+            <div class="label">NOW PLAYING</div>
+            <div class="value" id="nowPlaying">Nothing playing</div>
+
+            <div class="label">STATUS</div>
+            <div class="value playing" id="state">● Ready</div>
+
+        </div>
+
+        <div class="volume-header">
+            <span>VOLUME</span>
+            <span id="volumeValue">50%</span>
+        </div>
+
+        <input
+            type="range"
+            id="volume"
+            min="0"
+            max="100"
+            value="50">
+
+        <div class="label">STREAM URL</div>
+
+        <input
+            type="text"
+            id="streamUrl"
+            placeholder="stream.example.com(:8000)">
+
+        <div class="buttons">
+            <button class="play-btn" onclick="startStream()">
+                ▶ PLAY
+            </button>
+
+            <button class="stop-btn" onclick="stopStream()">
+                ■ STOP
+            </button>
+        </div>
+
+        <div class="status" id="status">
+            Ready
+        </div>
+
+    </div>
+
+    <script>
+    const volumeSlider = document.getElementById("volume");
+    const volumeValue = document.getElementById("volumeValue");
+
+    volumeSlider.addEventListener("input", function() {
+        volumeValue.textContent = this.value + "%";
+    });
+
+    volumeSlider.addEventListener("change", async function() {
+        try {
+            await fetch("/volume?value=" + this.value);
+            setStatus("Volume set to " + this.value + "%");
+        } catch(e) {
+            setStatus("Failed to set volume");
+        }
+    });
+
+    async function startStream() {
+        const url = document.getElementById("streamUrl").value.trim();
+
+        if (!url) {
+            setStatus("Please enter a stream URL");
+            return;
+        }
+
+        try {
+            await fetch("/start?url=" + url);
+
+            document.getElementById("nowPlaying").textContent = url;
+
+            const state = document.getElementById("state");
+            state.textContent = "● Playing";
+            state.className = "value playing";
+
+            setStatus("Stream started");
+        }
+        catch(e) {
+            setStatus("Failed to start stream");
+        }
+    }
+
+    async function stopStream() {
+        try {
+            await fetch("/stop");
+
+            document.getElementById("nowPlaying").textContent =
+                "Nothing playing";
+
+            const state = document.getElementById("state");
+            state.textContent = "■ Stopped";
+            state.className = "value stopped";
+
+            setStatus("Stream stopped");
+        }
+        catch(e) {
+            setStatus("Failed to stop stream");
+        }
+    }
+
+    function setStatus(text) {
+        document.getElementById("status").textContent = text;
+    }
+    </script>
+
+    </body>
+    </html>
+)HTML";
