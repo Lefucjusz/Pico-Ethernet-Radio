@@ -123,6 +123,8 @@ static void decoder_task(void *arg)
             case DECODER_BUFFERING:
                 vTaskDelay(100);
                 if (bytes_available > ctx.watermark_high) {
+                    LOG_DEBUG("Buffer ready: %uB", bytes_available);
+
                     helix_mp3_deinit(&ctx.mp3); // TODO this is very costly recovery strategy
                     int err = helix_mp3_init(&ctx.mp3, &ctx.mp3_io);
                     if (err) {

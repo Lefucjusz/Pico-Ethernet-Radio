@@ -6,6 +6,7 @@
 #include <ipc_context.h>
 #include <network.h>
 #include <connection.h>
+#include <server.h>
 #include <decoder.h>
 #include <player.h>
 #include <event_manager.h>
@@ -63,6 +64,7 @@ static void bootstrap_task(void *arg)
     ipc_context_init();
     network_init();
     connection_init();
+    server_init();
     decoder_init();
     player_init();
     event_manager_init();

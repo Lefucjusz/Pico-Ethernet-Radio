@@ -4,6 +4,7 @@
 #include <utils.h>
 #include <ipc_message.h>
 #include <ipc_context.h>
+#include <math.h>
 #include <logger.h>
 
 #define PLAYER_TASK_NAME "player"
@@ -14,6 +15,8 @@
 #define PLAYER_DMA_BUFFER_SIZE_BYTES AUDIO_FRAMES_TO_BYTES(PLAYER_DMA_BUFFER_SIZE_FRAMES)
 
 #define PLAYER_DEFAULT_SAMPLE_RATE_HZ 44100
+#define PLAYER_VOLUME_DEFAULT 50 // %
+#define PLAYER_VOLUME_MAX 100 // %
 
 #define PLAYER_STATE_PROCESSING_PERIOD_TICKS pdMS_TO_TICKS(500)
 
@@ -32,6 +35,7 @@ typedef struct
     audio_i2s_config_t i2s_cfg;
     size_t watermark_low;
     size_t watermark_high;
+    int16_t volume;
 } player_ctx_t;
 
 static player_ctx_t ctx;
@@ -50,11 +54,25 @@ static void player_dma_callback(void)
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-static void player_scale_volume(int16_t *buffer, size_t frames_count)
+void player_set_volume(uint8_t volume)
 {
-    for (size_t i = 0; i < frames_count; ++i) {
-        buffer[2 * i] /= 13;
-        buffer[2 * i + 1] /= 13; // TODO
+    if (volume == 0) {
+        ctx.volume = 0;
+        return;
+    }
+
+    const float volume_norm = volume / (float)PLAYER_VOLUME_MAX;
+    const float a = 1e-3f;
+    const float b = 6.908f;
+	const float gain = UTILS_CLAMP(a * expf(b * volume_norm), 0.0f, 1.0f);
+
+    ctx.volume = UTILS_FLOAT_TO_Q15(gain);
+}
+
+static void player_scale_volume(int16_t *samples, size_t size, int16_t volume)
+{
+    for (size_t i = 0; i < size; ++i) {
+        samples[i] = UTILS_Q15_MUL(samples[i], volume);
     }
 }
 
@@ -66,7 +84,7 @@ static void player_feed_buffer(void)
         LOG_WARN("Buffer underrun!");
     }
 
-    player_scale_volume(buffer, AUDIO_BYTES_TO_FRAMES(bytes_read));
+    player_scale_volume(buffer, AUDIO_BYTES_TO_SAMPLES(bytes_read), ctx.volume);
 }
 
 static void player_report_running(void)
@@ -117,6 +135,8 @@ static void player_task(void *arg)
         configASSERT(0);
     }
 
+    player_set_volume(PLAYER_VOLUME_DEFAULT);
+
     while (1) {
         /* State transitions */
         if (xQueueReceive(ctx.ipc->player_q, &msg, PLAYER_STATE_PROCESSING_PERIOD_TICKS) == pdTRUE) {
@@ -152,6 +172,11 @@ static void player_task(void *arg)
 
                 default:
                     break;
+            }
+
+            if (msg.type == IPC_MSG_PLAYER_SET_VOLUME) {
+                LOG_INFO("Setting volume to %u%%", msg.arg);
+                player_set_volume(msg.arg);
             }
         }
 

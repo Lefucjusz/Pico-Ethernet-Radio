@@ -5,6 +5,7 @@ target_sources(network
         ${CMAKE_CURRENT_LIST_DIR}/enc28j60/enc28j60.c
         ${CMAKE_CURRENT_LIST_DIR}/ethernetif/ethernetif.c
         ${CMAKE_CURRENT_LIST_DIR}/connection/connection.c
+        ${CMAKE_CURRENT_LIST_DIR}/server/server.c
         ${CMAKE_CURRENT_LIST_DIR}/network.c
 )
 
@@ -14,6 +15,7 @@ target_include_directories(network
         ${CMAKE_CURRENT_LIST_DIR}/ethernetif
     PUBLIC
         ${CMAKE_CURRENT_LIST_DIR}/connection
+        ${CMAKE_CURRENT_LIST_DIR}/server
         ${CMAKE_CURRENT_LIST_DIR}
 )
 

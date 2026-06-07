@@ -68,6 +68,11 @@ target_link_libraries(Pico-Ethernet-Radio
         utils
 )
 
+target_link_options(Pico-Ethernet-Radio
+    PRIVATE
+        -Wl,--print-memory-usage
+)
+
 # Add the standard include files to the build
 target_include_directories(Pico-Ethernet-Radio PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
