@@ -13,6 +13,7 @@ typedef struct
     QueueHandle_t conn_q;
     QueueHandle_t decoder_q;
     QueueHandle_t player_q;
+    QueueHandle_t server_q;
 } ipc_ctx_t;
 
 bool ipc_context_init(void);

@@ -1,9 +1,10 @@
 #include "event_manager.h"
 #include <FreeRTOS.h>
 #include <task.h>
-#include <utils.h>
 #include <ipc_context.h>
 #include <ipc_message.h>
+#include <radio_state.h>
+#include <utils.h>
 #include <logger.h>
 #include <stdlib.h>
 
@@ -11,203 +12,295 @@
 #define EVT_MGR_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 1)
 #define EVT_MGR_TASK_PRIO 1
 
-typedef enum
+typedef struct
 {
-    EVT_MGR_STATE_GET_LINK,
-    EVT_MGR_STATE_GET_IP,
-    EVT_MGR_STATE_READY,
-    EVT_MGR_STATE_CONNECTING,
-    EVT_MGR_STATE_STARTING_DECODER,
-    EVT_MGR_STATE_STARTING_PLAYER,
-    EVT_MGR_STATE_PLAYBACK_RUNNING,
-    EVT_MGR_COUNT
-} evt_mgr_state_t;
+    const ipc_ctx_t *ipc;
+} evt_mgr_ctx_t;
 
-static const char *evt_mgr_state_str[] = {
-    "GET_LINK",
-    "GET_IP",
-    "READY",
-    "CONNECTING",
-    "STARTING_DECODER",
-    "STARTING_PLAYER",
-    "PLAYBACK_RUNNING"
-};
+static evt_mgr_ctx_t ctx;
 
-static_assert(EVT_MGR_COUNT == UTILS_ARRAY_COUNT(evt_mgr_state_str), "States enum and name look-up table out of sync!");
-
-static evt_mgr_state_t state;
-
-static void event_manager_parse_link(const char *link, char *url, uint16_t *port)
+static bool evt_mgr_parse_url(const char *url, radio_url_t*out)
 {
-    const char *port_sep = strrchr(link, ':');
-    if (port_sep == NULL) {
-        *port = 80;
+    /* Skip scheme */
+    const char *host_start = strstr(url, "://");
+    host_start = (host_start != NULL) ? (host_start + 3) : url;
+
+    /* Find path */
+    const char *path_start = strchr(host_start, '/');
+    const char *host_end = (path_start != NULL) ? path_start : (host_start + strlen(host_start));
+
+    /* Copy path */
+    if (path_start != NULL) {
+        const size_t path_len = strlen(path_start);
+        if (path_len >= sizeof(out->path)) {
+            return false;
+        }
+        memcpy(out->path, path_start, path_len);
+        out->path[path_len] = '\0';
     }
     else {
-        *port = atoi(port_sep + 1);
+        strcpy(out->path, "/");
     }
 
-    const size_t url_len = port_sep - link;
-    memcpy(url, link, url_len);
-    url[url_len] = '\0';
+    /* Extract host and port */
+    const char *port_start = strchr(host_start, ':');
+    if (port_start != NULL) {
+        const size_t host_len = port_start - host_start;
+        if (host_len >= sizeof(out->host)) {
+            return false;
+        }
+
+        memcpy(out->host, host_start, host_len);
+        out->host[host_len] = '\0';
+
+        out->port = (uint16_t)atoi(port_start + 1);
+    }
+    else {
+        const size_t host_len = host_end - host_start;
+        if (host_len >= sizeof(out->host)) {
+            return false;
+        }
+
+        memcpy(out->host, host_start, host_len);
+        out->host[host_len] = '\0';
+
+        out->port = 80;
+    }
+
+    return true;
 }
 
-static void event_manager_task(void *arg)
+static void evt_mgr_connection_start(const radio_url_t *url)
 {
-    const ipc_ctx_t *ipc = ipc_context_get();
+    ipc_connection_msg_t msg = {
+        .type = IPC_MSG_CONNECTION_START,
+        .url = url
+    };
+    xQueueSend(ctx.ipc->conn_q, &msg, 0);
+}
+
+static void evt_mgr_connection_stop(void)
+{
+    ipc_connection_msg_t msg = {
+        .type = IPC_MSG_CONNECTION_STOP
+    };
+    xQueueSend(ctx.ipc->conn_q, &msg, 0);
+}
+
+static void evt_mgr_decoder_start(void)
+{
+    ipc_decoder_msg_t msg = {
+        .type = IPC_MSG_DECODER_START
+    };
+    xQueueSend(ctx.ipc->decoder_q, &msg, 0);
+}
+
+static void evt_mgr_decoder_stop(void)
+{
+    ipc_decoder_msg_t msg = {
+        .type = IPC_MSG_DECODER_STOP
+    };
+    xQueueSend(ctx.ipc->decoder_q, &msg, 0);
+}
+
+static void evt_mgr_player_set_volume(uint8_t volume)
+{
+    ipc_player_msg_t msg = {
+        .type = IPC_MSG_PLAYER_SET_VOLUME,
+        .arg = volume
+    };
+    xQueueSend(ctx.ipc->player_q, &msg, 0);
+}
+
+static void evt_mgr_player_start(uint16_t sample_rate)
+{
+    ipc_player_msg_t msg = {
+        .type = IPC_MSG_PLAYER_START,
+        .arg = sample_rate
+    };
+    xQueueSend(ctx.ipc->player_q, &msg, 0);
+}
+
+static void evt_mgr_player_stop(void)
+{
+    ipc_player_msg_t msg = {
+        .type = IPC_MSG_PLAYER_STOP
+    };
+    xQueueSend(ctx.ipc->player_q, &msg, 0);
+}
+
+static void evt_mgr_server_send_status(const radio_status_t *status)
+{
+    ipc_server_msg_t msg = {
+        .type = IPC_MSG_UI_STATUS,
+        .status = *status
+    };
+    xQueueSend(ctx.ipc->server_q, &msg, 0);
+}
+
+static void evt_mgr_task(void *arg)
+{
+    ctx.ipc = ipc_context_get();
 
     ipc_manager_msg_t msg;
-    ipc_connection_msg_t conn_msg;
-    ipc_decoder_msg_t dec_msg;
-    ipc_player_msg_t player_msg;
 
-    evt_mgr_state_t next_state;
+    radio_status_t status = {0};
+    radio_state_t new_state;
 
-    char stream_url[64];
-    uint16_t stream_port;
+    status.volume = 50;
 
     LOG_INFO("Started at core %d", portGET_CORE_ID());
 
     while (1) {
-        xQueueReceive(ipc->manager_q, &msg, portMAX_DELAY);
+        xQueueReceive(ctx.ipc->manager_q, &msg, portMAX_DELAY);
 
-        switch (state) {
-            case EVT_MGR_STATE_GET_LINK:
-                if (msg.type == IPC_MSG_NETWORK_LINK_UP) {
-                    LOG_INFO("Link UP!");
-                    next_state = EVT_MGR_STATE_GET_IP;
+        if (msg.type == IPC_MSG_UI_GET_STATUS) {
+            evt_mgr_server_send_status(&status);
+            continue;
+        }
+
+        switch (status.state) {
+            case RADIO_STATE_GET_LINK:
+                switch (msg.type) {
+                    case IPC_MSG_NETWORK_LINK_UP:
+                        LOG_INFO("Link UP!");
+                        new_state = RADIO_STATE_GET_IP;
+                        break;
+
+                    default:
+                        break;
                 }
                 break;
 
-            case EVT_MGR_STATE_GET_IP:
-                if (msg.type == IPC_MSG_NETWORK_GOT_IP) {
-                    LOG_INFO("Got IP!");
-                    next_state = EVT_MGR_STATE_READY;
+            case RADIO_STATE_GET_IP:
+               switch (msg.type) {
+                    case IPC_MSG_NETWORK_GOT_IP:
+                        LOG_INFO("Got IP!");
+                        new_state = RADIO_STATE_READY;
+                        break;
+
+                    default:
+                        break;
                 }
                 break;
 
-            case EVT_MGR_STATE_READY:
-                if (msg.type == IPC_MSG_UI_START_PLAYBACK) {
-                    event_manager_parse_link(msg.arg, stream_url, &stream_port);
+            case RADIO_STATE_READY:
+                switch (msg.type) {
+                    case IPC_MSG_UI_START_PLAYBACK:
+                        evt_mgr_parse_url(msg.arg, &status.stream_url);
+                        evt_mgr_connection_start(&status.stream_url);
+                        new_state = RADIO_STATE_CONNECTING;
+                        break;
 
-                    conn_msg.type = IPC_MSG_CONNECTION_START;
-                    conn_msg.host = stream_url;
-                    conn_msg.port = stream_port;
-                    xQueueSend(ipc->conn_q, &conn_msg, 0);
+                    case IPC_MSG_UI_SET_VOLUME:
+                        status.volume = (uintptr_t)msg.arg;
+                        evt_mgr_player_set_volume(status.volume);
+                        break;
 
-                    next_state = EVT_MGR_STATE_CONNECTING;
-                }
-                else if (msg.type == IPC_MSG_UI_SET_VOLUME) {
-                    player_msg.type = IPC_MSG_PLAYER_SET_VOLUME;
-                    player_msg.arg = (uintptr_t)msg.arg;
-                    xQueueSend(ipc->player_q, &player_msg, 0);
-                }
-                break;
-
-            case EVT_MGR_STATE_CONNECTING:
-                if (msg.type == IPC_MSG_CONNECTION_SUCCESS) {
-                    LOG_INFO("Connection succeeded!");
-
-                    dec_msg.type = IPC_MSG_DECODER_START;
-                    xQueueSend(ipc->decoder_q, &dec_msg, 0);
-
-                    next_state = EVT_MGR_STATE_STARTING_DECODER;
-                }
-                else if (msg.type == IPC_MSG_CONNECTION_FAIL) {
-                    LOG_FATAL("Connection failed!");
-                    configASSERT(0); // TODO at this development stage it's fatal
+                    default:
+                        break;
                 }
                 break;
 
-            case EVT_MGR_STATE_STARTING_DECODER:
-                if (msg.type == IPC_MSG_DECODER_RUNNING) {
-                    LOG_INFO("Decoder running, sample rate %uHz!", (uintptr_t)msg.arg);
+            case RADIO_STATE_CONNECTING:
+                switch (msg.type) {
+                    case IPC_MSG_CONNECTION_SUCCESS:
+                        LOG_INFO("Connection succeeded!");
+                        evt_mgr_decoder_start();
+                        new_state = RADIO_STATE_STARTING_DECODER;
+                        break;
 
-                    player_msg.type = IPC_MSG_PLAYER_START;
-                    player_msg.arg = (uintptr_t)msg.arg; // Sample rate
-                    xQueueSend(ipc->player_q, &player_msg, 0);
+                    case IPC_MSG_CONNECTION_FAIL:
+                        LOG_FATAL("Connection failed!");
+                        configASSERT(0); // TODO at this development stage it's fatal
+                        break;
 
-                    next_state = EVT_MGR_STATE_STARTING_PLAYER;
-                }
-                else if (msg.type == IPC_MSG_DECODER_FAIL) {
-                    LOG_FATAL("Decoder failed!");
-                    configASSERT(0); // TODO at this development stage it's fatal
+                    default:
+                        break;
                 }
                 break;
 
-            case EVT_MGR_STATE_STARTING_PLAYER:
-                if (msg.type == IPC_MSG_PLAYER_RUNNING) {
-                    LOG_INFO("Player running!");
+            case RADIO_STATE_STARTING_DECODER:
+                switch (msg.type) {
+                    case IPC_MSG_DECODER_RUNNING:
+                        LOG_INFO("Decoder running, sample rate %uHz!", (uintptr_t)msg.arg);
+                        evt_mgr_player_start((uintptr_t)msg.arg);
+                        new_state = RADIO_STATE_STARTING_PLAYER;
+                        break;
 
-                    next_state = EVT_MGR_STATE_PLAYBACK_RUNNING;
+                    case IPC_MSG_DECODER_FAIL:
+                        LOG_FATAL("Decoder failed!");
+                        configASSERT(0); // TODO at this development stage it's fatal
+                        break;
+
+                    default:
+                        break;
                 }
-                // TODO stop, link down etc in all other states too
                 break;
 
-            case EVT_MGR_STATE_PLAYBACK_RUNNING:
+            case RADIO_STATE_STARTING_PLAYER:
+                switch (msg.type) {
+                    case IPC_MSG_PLAYER_RUNNING:
+                        LOG_INFO("Player running!");
+                        new_state = RADIO_STATE_PLAYBACK_RUNNING;
+                        break;
+
+                    default:
+                        break;
+                    }
+                    // TODO stop, link down etc in all other states too
+                break;
+
+            case RADIO_STATE_PLAYBACK_RUNNING:
                 LOG_INFO("Message: %d", msg.type);
-                if (msg.type == IPC_MSG_NETWORK_LINK_DOWN) {
+                switch (msg.type) {
+                    case IPC_MSG_NETWORK_LINK_DOWN:
+                        evt_mgr_player_stop();
+                        evt_mgr_decoder_stop();
+                        evt_mgr_connection_stop();
+                        new_state = RADIO_STATE_GET_LINK;
+                        break;
 
-                    player_msg.type = IPC_MSG_PLAYER_STOP;
-                    xQueueSend(ipc->player_q, &player_msg, 0);
+                    case IPC_MSG_CONNECTION_FAIL:
+                        evt_mgr_player_stop();
+                        evt_mgr_decoder_stop();
+                        evt_mgr_connection_start(&status.stream_url); // Try to restart the connection
 
-                    dec_msg.type = IPC_MSG_DECODER_STOP;
-                    xQueueSend(ipc->decoder_q, &dec_msg, 0);
+                        // TODO retry count, backoff
 
-                    conn_msg.type = IPC_MSG_CONNECTION_STOP;
-                    xQueueSend(ipc->conn_q, &conn_msg, 0);
+                        new_state = RADIO_STATE_CONNECTING;
+                        break;
 
-                    next_state = EVT_MGR_STATE_GET_LINK;
+                    case IPC_MSG_UI_SET_VOLUME:
+                        status.volume = (uintptr_t)msg.arg;
+                        evt_mgr_player_set_volume(status.volume);
+                        break;
+
+                    case IPC_MSG_UI_STOP_PLAYBACK:
+                        evt_mgr_player_stop();
+                        evt_mgr_decoder_stop();
+                        evt_mgr_connection_stop();
+                        new_state = RADIO_STATE_READY;
+                        break;
+
+                    default:
+                        break;
                 }
-                else if (msg.type == IPC_MSG_CONNECTION_FAIL) {
-                    player_msg.type = IPC_MSG_PLAYER_STOP;
-                    xQueueSend(ipc->player_q, &player_msg, 0);
-
-                    dec_msg.type = IPC_MSG_DECODER_STOP;
-                    xQueueSend(ipc->decoder_q, &dec_msg, 0);
-
-                    conn_msg.type = IPC_MSG_CONNECTION_START;
-                    conn_msg.host = stream_url;
-                    conn_msg.port = stream_port;
-                    xQueueSend(ipc->conn_q, &conn_msg, 0);
-
-                    next_state = EVT_MGR_STATE_CONNECTING;
-                }
-                else if (msg.type == IPC_MSG_UI_SET_VOLUME) {
-                    player_msg.type = IPC_MSG_PLAYER_SET_VOLUME;
-                    player_msg.arg = (uintptr_t)msg.arg;
-                    xQueueSend(ipc->player_q, &player_msg, 0);
-                }
-                else if (msg.type == IPC_MSG_UI_STOP_PLAYBACK) {
-                    player_msg.type = IPC_MSG_PLAYER_STOP;
-                    xQueueSend(ipc->player_q, &player_msg, 0);
-
-                    dec_msg.type = IPC_MSG_DECODER_STOP;
-                    xQueueSend(ipc->decoder_q, &dec_msg, 0);
-
-                    conn_msg.type = IPC_MSG_CONNECTION_STOP;
-                    xQueueSend(ipc->conn_q, &conn_msg, 0);
-
-                    next_state = EVT_MGR_STATE_READY;
-                }
-                // TODO stop from UI
-                break;
 
             default:
-                LOG_ERROR("Invalid state: %d", state);
                 break;
         }
 
-        if (state != next_state) {
-            LOG_INFO("%s -> %s", evt_mgr_state_str[state], evt_mgr_state_str[next_state]);
-            state = next_state;
+        if (status.state != new_state) {
+            LOG_INFO("%s -> %s", radio_state_get_name(status.state), radio_state_get_name(new_state));
+            status.state = new_state;
         }
     }
 }
 
 void event_manager_init(void)
 {
-    xTaskCreate(event_manager_task,
+    xTaskCreate(evt_mgr_task,
                 EVT_MGR_TASK_NAME,
                 EVT_MGR_TASK_STACK_SIZE,
                 NULL,

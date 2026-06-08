@@ -18,9 +18,7 @@ const char webpage[] = R"HTML(
         --red-dark: #7f1d1d;
     }
 
-    * {
-        box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
         margin: 0;
@@ -67,13 +65,8 @@ const char webpage[] = R"HTML(
         margin-bottom: 14px;
     }
 
-    .playing {
-        color: var(--green);
-    }
-
-    .stopped {
-        color: #ff7070;
-    }
+    .playing { color: var(--green); }
+    .stopped { color: #ff7070; }
 
     .volume-header {
         display: flex;
@@ -121,21 +114,11 @@ const char webpage[] = R"HTML(
         font-weight: bold;
     }
 
-    .play-btn {
-        background: var(--green-dark);
-    }
+    .play-btn { background: var(--green-dark); }
+    .play-btn:hover { filter: brightness(1.15); }
 
-    .play-btn:hover {
-        filter: brightness(1.15);
-    }
-
-    .stop-btn {
-        background: var(--red-dark);
-    }
-
-    .stop-btn:hover {
-        filter: brightness(1.15);
-    }
+    .stop-btn { background: var(--red-dark); }
+    .stop-btn:hover { filter: brightness(1.15); }
 
     .status {
         margin-top: 15px;
@@ -156,13 +139,11 @@ const char webpage[] = R"HTML(
         <div class="title">📻 RP2040 INTERNET RADIO</div>
 
         <div class="display">
-
             <div class="label">NOW PLAYING</div>
             <div class="value" id="nowPlaying">Nothing playing</div>
 
             <div class="label">STATUS</div>
             <div class="value playing" id="state">● Ready</div>
-
         </div>
 
         <div class="volume-header">
@@ -170,33 +151,25 @@ const char webpage[] = R"HTML(
             <span id="volumeValue">50%</span>
         </div>
 
-        <input
-            type="range"
-            id="volume"
-            min="0"
-            max="100"
-            value="50">
+        <input type="range" id="volume" min="0" max="100">
 
         <div class="label">STREAM URL</div>
 
-        <input
-            type="text"
-            id="streamUrl"
-            placeholder="stream.example.com(:8000)">
+        <input type="text" id="streamUrl" placeholder="stream.example.com(:8000)" list="stations">
+
+        <datalist id="stations">
+            <option value="193.0.98.66:8005">Radio Kampus</option>
+            <option value="mp3.polskieradio.pl:8904">Trójka</option>
+            <option value="stream9.nadaje.com:8002/live">Radio Rockserwis FM</option>
+            <option value="stream.fr.morow.com:8080/morow_med.mp3">MOROW</option>
+        </datalist>
 
         <div class="buttons">
-            <button class="play-btn" onclick="startStream()">
-                ▶ PLAY
-            </button>
-
-            <button class="stop-btn" onclick="stopStream()">
-                ■ STOP
-            </button>
+            <button class="play-btn" onclick="startStream()">▶ PLAY</button>
+            <button class="stop-btn" onclick="stopStream()">■ STOP</button>
         </div>
 
-        <div class="status" id="status">
-            Ready
-        </div>
+        <div class="status" id="status">Ready</div>
 
     </div>
 
@@ -227,16 +200,8 @@ const char webpage[] = R"HTML(
 
         try {
             await fetch("/start?url=" + url);
-
-            document.getElementById("nowPlaying").textContent = url;
-
-            const state = document.getElementById("state");
-            state.textContent = "● Playing";
-            state.className = "value playing";
-
             setStatus("Stream started");
-        }
-        catch(e) {
+        } catch(e) {
             setStatus("Failed to start stream");
         }
     }
@@ -244,17 +209,8 @@ const char webpage[] = R"HTML(
     async function stopStream() {
         try {
             await fetch("/stop");
-
-            document.getElementById("nowPlaying").textContent =
-                "Nothing playing";
-
-            const state = document.getElementById("state");
-            state.textContent = "■ Stopped";
-            state.className = "value stopped";
-
             setStatus("Stream stopped");
-        }
-        catch(e) {
+        } catch(e) {
             setStatus("Failed to stop stream");
         }
     }
@@ -262,6 +218,56 @@ const char webpage[] = R"HTML(
     function setStatus(text) {
         document.getElementById("status").textContent = text;
     }
+
+    /* STATUS POLLING */
+    async function updateStatus() {
+        try {
+            const res = await fetch("/status");
+            if (!res.ok) return;
+
+            const data = await res.json();
+
+            // volume sync
+            if (typeof data.volume === "number") {
+                volumeSlider.value = data.volume;
+                volumeValue.textContent = data.volume + "%";
+            }
+
+            // stream flattening
+            const nowPlaying = document.getElementById("nowPlaying");
+            const stream = data.stream;
+
+            if (!stream || !stream.host) {
+                nowPlaying.textContent = "Nothing playing";
+            } else {
+                const port = stream.port ? ":" + stream.port : "";
+                const path = stream.path || "";
+                nowPlaying.textContent = stream.host + port + path;
+            }
+
+            // state mapping
+            const state = document.getElementById("state");
+
+            switch (data.state) {
+                case 0: state.textContent = "● Getting link"; break;
+                case 1: state.textContent = "● Getting IP"; break;
+                case 2: state.textContent = "● Ready"; break;
+                case 3: state.textContent = "● Connecting"; break;
+                case 4: state.textContent = "● Starting decoder"; break;
+                case 5: state.textContent = "● Starting player"; break;
+                case 6: state.textContent = "● Playing"; break;
+                default: state.textContent = "● Unknown"; break;
+            }
+
+            state.className = (data.state === 6) ? "value playing" : "value";
+
+        } catch (e) {
+            setStatus("Status update failed");
+        }
+    }
+
+    setInterval(updateStatus, 1000);
+    updateStatus();
     </script>
 
     </body>

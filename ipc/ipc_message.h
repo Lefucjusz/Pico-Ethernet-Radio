@@ -1,6 +1,6 @@
 #pragma once
 
-#include <stdint.h>
+#include <radio_state.h>
 
 typedef enum
 {
@@ -26,6 +26,7 @@ typedef enum
     IPC_MSG_UI_START_PLAYBACK,
     IPC_MSG_UI_STOP_PLAYBACK,
     IPC_MSG_UI_SET_VOLUME,
+    IPC_MSG_UI_GET_STATUS,
 
 
 
@@ -38,21 +39,22 @@ typedef enum
 
     IPC_MSG_PLAYER_START,
     IPC_MSG_PLAYER_STOP,
-    IPC_MSG_PLAYER_SET_VOLUME
+    IPC_MSG_PLAYER_SET_VOLUME,
+
+    IPC_MSG_UI_STATUS
 
 } ipc_msg_type_t;
 
 typedef struct
 {
     ipc_msg_type_t type;
-    void *arg;
+    void *arg; // TODO maybe different type?
 } ipc_manager_msg_t;
 
 typedef struct
 {
     ipc_msg_type_t type;
-    const char *host;
-    uint16_t port;
+    const radio_url_t *url;
 } ipc_connection_msg_t;
 
 typedef struct
@@ -65,3 +67,9 @@ typedef struct
     ipc_msg_type_t type;
     uint16_t arg; // volume/sample rate
 } ipc_player_msg_t;
+
+typedef struct
+{
+    ipc_msg_type_t type;
+    radio_status_t status;
+} ipc_server_msg_t;

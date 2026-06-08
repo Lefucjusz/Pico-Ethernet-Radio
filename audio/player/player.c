@@ -221,8 +221,8 @@ void player_init(void)
     ctx.ipc = ipc_context_get();
 
     const size_t pcm_buffer_size = xStreamBufferBytesAvailable(ctx.ipc->pcm_buffer) + xStreamBufferSpacesAvailable(ctx.ipc->pcm_buffer);
-    ctx.watermark_low = 1 * pcm_buffer_size / 4; // 25%
-    ctx.watermark_high = 3 * pcm_buffer_size / 4; // 75%
+    ctx.watermark_low = 2 * pcm_buffer_size / 10; // 20%
+    ctx.watermark_high = 8 * pcm_buffer_size / 10; // 80%
 
     xTaskCreate(player_task,
                 PLAYER_TASK_NAME,

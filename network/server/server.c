@@ -49,35 +49,36 @@ static void server_send_response(int client, const char *resp, size_t size)
     }
 }
 
-static void server_send_ok(int client)
+static void server_send_200(int client, const char *body)
 {
-    const char *resp =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/plain\r\n"
-        "Content-Length: 2\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-        "OK";
+    static char header[128];
 
-    server_send_response(client, resp, strlen(resp));
-}
-
-static void server_send_page(int client)
-{
-    static char tmp[128];
-
-    snprintf(tmp,
-            sizeof(tmp),
+    snprintf(header,
+            sizeof(header),
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html\r\n"
             "Content-Length: %u\r\n"
             "Connection: close\r\n"
             "\r\n",
-            (unsigned)strlen(webpage)
+            body ? (unsigned)strlen(body) : 0
     );
 
-    server_send_response(client, tmp, strlen(tmp));
-    server_send_response(client, webpage, strlen(webpage));
+    server_send_response(client, header, strlen(header));
+    if (body) {
+        server_send_response(client, body, strlen(body));
+    }
+}
+
+static void server_send_500(int client)
+{
+    const char *resp =
+        "HTTP/1.1 500 Internal Server Error\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: 0\r\n"
+        "Connection: close\r\n"
+        "\r\n";
+
+    server_send_response(client, resp, strlen(resp));
 }
 
 static int server_parse_int(const char *req)
@@ -118,9 +119,10 @@ static const char *server_parse_url(const char *req)
     if (strncmp(q, "url=", 4) != 0) {
         return NULL;
     }
+    q += 4;
 
     const size_t len = end - q;
-    strlcpy(url, q + 4, UTILS_MIN(len, sizeof(url)));
+    strlcpy(url, q, UTILS_MIN(len, sizeof(url) - 1) + 1);
 
     return url;
 }
@@ -128,7 +130,7 @@ static const char *server_parse_url(const char *req)
 static void server_handle_request(int client, char *req)
 {
     if (strncmp(req, "GET / ", 6) == 0) { // TODO magic numbers
-        server_send_page(client);
+        server_send_200(client, webpage);
     }
     else if (strncmp(req, "GET /volume", 11) == 0) {
         const uintptr_t volume = server_parse_int(req);
@@ -136,7 +138,7 @@ static void server_handle_request(int client, char *req)
         ipc_manager_msg_t msg = {.type = IPC_MSG_UI_SET_VOLUME, .arg = (void *)volume};
         xQueueSend(ipc_context_get()->manager_q, &msg, 0);
 
-        server_send_ok(client);
+        server_send_200(client, NULL);
     }
     else if (strncmp(req, "GET /start", 10) == 0) {
         const char *url = server_parse_url(req);
@@ -151,13 +153,44 @@ static void server_handle_request(int client, char *req)
             xQueueSend(ipc_context_get()->manager_q, &msg, 0);
         }
 
-        server_send_ok(client);
+        server_send_200(client, NULL);
     }
     else if (strncmp(req, "GET /stop", 9) == 0) {
         ipc_manager_msg_t msg = { .type = IPC_MSG_UI_STOP_PLAYBACK };
         xQueueSend(ipc_context_get()->manager_q, &msg, 0);
         
-        server_send_ok(client);
+        server_send_200(client, NULL);
+    }
+    else if (strncmp(req, "GET /status", 11) == 0) {
+        ipc_manager_msg_t msg = { .type = IPC_MSG_UI_GET_STATUS };
+        xQueueSend(ipc_context_get()->manager_q, &msg, 0);
+
+        static ipc_server_msg_t resp;
+        if (xQueueReceive(ipc_context_get()->server_q, &resp, 500) == pdTRUE) { // TODO this doesn't seem like a good solution
+            static char tmp[256]; // TODO fix those buffers scattered around
+
+            snprintf(tmp, sizeof(tmp),
+                    "{"
+                    "\"state\":%d,"
+                    "\"volume\":%u,"
+                    "\"stream\":{"
+                        "\"host\":\"%s\","
+                        "\"port\":%u,"
+                        "\"path\":\"%s\""
+                    "}"
+                    "}",
+                    resp.status.state,
+                    resp.status.volume,
+                    resp.status.stream_url.host,
+                    resp.status.stream_url.port,
+                    resp.status.stream_url.path
+            );
+
+            server_send_200(client, tmp);
+        }
+        else {
+            server_send_500(client);
+        }
     }
 }
 

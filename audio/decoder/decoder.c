@@ -159,8 +159,8 @@ void decoder_init(void)
     ctx.ipc = ipc_context_get();
 
     const size_t recv_buffer_size = xStreamBufferBytesAvailable(ctx.ipc->recv_buffer) + xStreamBufferSpacesAvailable(ctx.ipc->recv_buffer);
-    ctx.watermark_low = 1 * recv_buffer_size / 4;   // 25%
-    ctx.watermark_high = 3 * recv_buffer_size / 4;  // 75%
+    ctx.watermark_low = 2 * recv_buffer_size / 10; // 20%
+    ctx.watermark_high = 8 * recv_buffer_size / 10; // 80%
 
     xTaskCreate(decoder_task,
                 DECODER_TASK_NAME,

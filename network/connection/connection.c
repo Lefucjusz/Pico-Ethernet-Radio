@@ -12,7 +12,7 @@
 
 static uint8_t rx_buffer[2048];
 
-static int connection_connect(const char *host, uint16_t port) // TODO non-blocking?
+static int connection_connect(const radio_url_t *url) // TODO non-blocking?
 {
     struct hostent *he;
     struct sockaddr_in addr;
@@ -20,9 +20,9 @@ static int connection_connect(const char *host, uint16_t port) // TODO non-block
     int sock;
 
     /* Resolve DNS */
-    he = gethostbyname(host);
+    he = gethostbyname(url->host);
     if (he == NULL) {
-        LOG_ERROR("DNS failed for host: %s", host);
+        LOG_ERROR("DNS failed for host: %s", url->host);
         return -1;
     }
 
@@ -36,7 +36,7 @@ static int connection_connect(const char *host, uint16_t port) // TODO non-block
     /* Set address and port */
     memset(&addr, 0, sizeof(addr));
     memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
-    addr.sin_port = htons(port);
+    addr.sin_port = htons(url->port);
     addr.sin_family = AF_INET;
 
     /* Connect */
@@ -52,7 +52,7 @@ static int connection_connect(const char *host, uint16_t port) // TODO non-block
 
     /* Send request */
     char request[128];
-    snprintf(request, sizeof(request), "GET / HTTP/1.0\r\nHost: %s\r\nUser-Agent: lwip-radio\r\nIcy-MetaData: 0\r\n\r\n", host);
+    snprintf(request, sizeof(request), "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: lwip-radio\r\nIcy-MetaData: 0\r\n\r\n", url->path, url->host);
     if (send(sock, request, strlen(request), 0) != strlen(request)) {
         LOG_ERROR("Failed to send request!");
         closesocket(sock);
@@ -90,7 +90,7 @@ static void connection_task(void *arg)
                 continue;
             }
 
-            sock = connection_connect(conn_msg.host, conn_msg.port);
+            sock = connection_connect(conn_msg.url);
             if (sock < 0) {
                 manager_msg.type = IPC_MSG_CONNECTION_FAIL;
             }
@@ -113,17 +113,21 @@ static void connection_task(void *arg)
         }
 
         /* TODO fix this abhorrency */
+        /* TODO this runs even if connect() fails, fix this */
         if (!header) {
         restart:
             size_t bytes = 0;
             while (bytes < 256) {
                 len = recv(sock, &rx_buffer[bytes], sizeof(rx_buffer) - bytes, 0);
+                if (len <= 0) {
+                    configASSERT(0);
+                }
                 bytes += len;
             }
 
             char *p = strstr(rx_buffer, "\r\n\r\n");
             if (!p) {
-                LOG_ERROR("no header!\n");
+                LOG_ERROR("no header!");
                 goto restart;
             }
             p += 4;
@@ -131,7 +135,7 @@ static void connection_task(void *arg)
             size_t data_offset = p - (char *)rx_buffer;
             size_t data_len = bytes - data_offset;
 
-            memmove(rx_buffer, p, bytes - data_len);
+            memmove(rx_buffer, p, data_len);
             xStreamBufferSend(ipc->recv_buffer, rx_buffer, data_len, 1000);
 
             header = true;
