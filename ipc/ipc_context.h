@@ -10,7 +10,7 @@ typedef struct
     StreamBufferHandle_t pcm_buffer;
     QueueHandle_t manager_q;
     QueueHandle_t lwip_q;
-    QueueHandle_t conn_q;
+    QueueHandle_t stream_q;
     QueueHandle_t decoder_q;
     QueueHandle_t player_q;
     QueueHandle_t server_q;

@@ -15,7 +15,7 @@ bool ipc_context_init(void)
     ctx.pcm_buffer = xStreamBufferCreate(IPC_CONTEXT_PCM_BUFFER_SIZE, 0);
 
     ctx.manager_q = xQueueCreate(IPC_CONTEXT_MANAGER_QUEUE_LENGTH, sizeof(ipc_manager_msg_t)); // TODO error handling
-    ctx.conn_q = xQueueCreate(IPC_CONTEXT_MODULE_QUEUE_LENGTH, sizeof(ipc_connection_msg_t));
+    ctx.stream_q = xQueueCreate(IPC_CONTEXT_MODULE_QUEUE_LENGTH, sizeof(ipc_stream_msg_t));
     ctx.decoder_q = xQueueCreate(IPC_CONTEXT_MODULE_QUEUE_LENGTH, sizeof(ipc_decoder_msg_t));
     ctx.player_q = xQueueCreate(IPC_CONTEXT_MODULE_QUEUE_LENGTH, sizeof(ipc_player_msg_t));
     ctx.server_q = xQueueCreate(IPC_CONTEXT_MODULE_QUEUE_LENGTH, sizeof(ipc_server_msg_t));

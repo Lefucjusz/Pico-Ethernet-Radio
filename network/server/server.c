@@ -173,17 +173,11 @@ static void server_handle_request(int client, char *req)
                     "{"
                     "\"state\":%d,"
                     "\"volume\":%u,"
-                    "\"stream\":{"
-                        "\"host\":\"%s\","
-                        "\"port\":%u,"
-                        "\"path\":\"%s\""
-                    "}"
+                    "\"url\":\"%s\""
                     "}",
                     resp.status.state,
                     resp.status.volume,
-                    resp.status.stream_url.host,
-                    resp.status.stream_url.port,
-                    resp.status.stream_url.path
+                    resp.status.stream_url
             );
 
             server_send_200(client, tmp);

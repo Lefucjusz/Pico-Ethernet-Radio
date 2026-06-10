@@ -5,7 +5,7 @@
 #include <stream_buffer.h>
 #include <ipc_context.h>
 #include <network.h>
-#include <connection.h>
+#include <stream.h>
 #include <server.h>
 #include <decoder.h>
 #include <player.h>
@@ -63,7 +63,7 @@ static void bootstrap_task(void *arg)
 
     ipc_context_init();
     network_init();
-    connection_init();
+    stream_init();
     server_init();
     decoder_init();
     player_init();

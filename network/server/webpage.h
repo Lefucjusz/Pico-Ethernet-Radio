@@ -233,16 +233,13 @@ const char webpage[] = R"HTML(
                 volumeValue.textContent = data.volume + "%";
             }
 
-            // stream flattening
+            // URL display
             const nowPlaying = document.getElementById("nowPlaying");
-            const stream = data.stream;
 
-            if (!stream || !stream.host) {
+            if (!data.url || data.url.length === 0) {
                 nowPlaying.textContent = "Nothing playing";
             } else {
-                const port = stream.port ? ":" + stream.port : "";
-                const path = stream.path || "";
-                nowPlaying.textContent = stream.host + port + path;
+                nowPlaying.textContent = data.url;
             }
 
             // state mapping

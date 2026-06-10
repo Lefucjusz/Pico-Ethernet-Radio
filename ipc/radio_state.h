@@ -2,12 +2,14 @@
 
 #include <stdint.h>
 
+#define RADIO_STATE_STREAM_URL_MAX_SIZE 128
+
 typedef enum
 {
     RADIO_STATE_GET_LINK,
     RADIO_STATE_GET_IP,
     RADIO_STATE_READY,
-    RADIO_STATE_CONNECTING,
+    RADIO_STATE_STARTING_STREAM,
     RADIO_STATE_STARTING_DECODER,
     RADIO_STATE_STARTING_PLAYER,
     RADIO_STATE_PLAYBACK_RUNNING,
@@ -16,15 +18,8 @@ typedef enum
 
 typedef struct
 {
-    char host[64];
-    char path[64];
-    uint16_t port;
-} radio_url_t;
-
-typedef struct
-{
     radio_state_t state;
-    radio_url_t stream_url;
+    char stream_url[RADIO_STATE_STREAM_URL_MAX_SIZE];
     uint8_t volume;
 } radio_status_t;
 

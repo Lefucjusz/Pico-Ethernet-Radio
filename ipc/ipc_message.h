@@ -9,9 +9,9 @@ typedef enum
     IPC_MSG_NETWORK_LINK_UP,
     IPC_MSG_NETWORK_GOT_IP,
 
-    IPC_MSG_CONNECTION_SUCCESS,
-    IPC_MSG_CONNECTION_FAIL,
-    IPC_MSG_CONNECTION_STOPPED,
+    IPC_MSG_STREAM_RUNNING,
+    IPC_MSG_STREAM_STOPPED,
+    IPC_MSG_STREAM_FAIL,
 
     IPC_MSG_DECODER_RUNNING,
     IPC_MSG_DECODER_STOPPED,
@@ -31,8 +31,8 @@ typedef enum
 
 
     // Manager -> module messages
-    IPC_MSG_CONNECTION_START,
-    IPC_MSG_CONNECTION_STOP,
+    IPC_MSG_STREAM_START,
+    IPC_MSG_STREAM_STOP,
 
     IPC_MSG_DECODER_START,
     IPC_MSG_DECODER_STOP,
@@ -54,8 +54,8 @@ typedef struct
 typedef struct
 {
     ipc_msg_type_t type;
-    const radio_url_t *url;
-} ipc_connection_msg_t;
+    const char *url;
+} ipc_stream_msg_t;
 
 typedef struct
 {
