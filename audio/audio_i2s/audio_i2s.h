@@ -43,6 +43,8 @@ void audio_i2s_set_sample_rate(audio_i2s_t *i2s, uint32_t sample_rate);
 void audio_i2s_clear_dma_irq(audio_i2s_t *i2s);
 int16_t *audio_i2s_get_next_buffer(audio_i2s_t *i2s);
 
+void audio_i2s_clear_buffer(audio_i2s_t *i2s);
+
 #ifdef __cplusplus
 }
 #endif

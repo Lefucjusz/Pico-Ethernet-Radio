@@ -267,7 +267,9 @@ static void stream_task(void *arg)
                             break;
                         }
 
+                        xStreamBufferReset(ipc->recv_buffer);
                         header_block_size = 0;
+
                         state = STREAM_PARSING_HEADER;
                         LOG_DEBUG("IDLE -> PARSING_HEADER");
                     }

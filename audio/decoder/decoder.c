@@ -89,6 +89,7 @@ static void decoder_task(void *arg)
             switch (ctx.state) {
                 case DECODER_IDLE:
                     if (msg.type == IPC_MSG_DECODER_START) {
+                        xStreamBufferReset(ctx.ipc->pcm_buffer);
                         decoder_report_buffering();
                         ctx.state = DECODER_BUFFERING;
                         LOG_DEBUG("IDLE -> BUFFERING");

@@ -5,6 +5,7 @@
 #include <hardware/clocks.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define AUDIO_I2S_CHANNELS 2
 #define AUDIO_I2S_BUFFER_COUNT 2
@@ -133,4 +134,10 @@ int16_t *audio_i2s_get_next_buffer(audio_i2s_t *i2s)
 {
     /* Return address set to be sent as next via control DMA */
     return *(int16_t **)dma_hw->ch[i2s->dma_ctrl_ch].read_addr;
+}
+
+void audio_i2s_clear_buffer(audio_i2s_t *i2s)
+{
+    const size_t buffer_size = AUDIO_I2S_BUFFER_COUNT * i2s->config->buffer_frames_count * AUDIO_I2S_CHANNELS * i2s->config->sample_size;
+    memset(i2s->pcm_buffer, 0, buffer_size);
 }

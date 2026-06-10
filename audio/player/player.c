@@ -143,6 +143,7 @@ static void player_task(void *arg)
             switch (ctx.state) {
                 case PLAYER_IDLE:
                     if (msg.type == IPC_MSG_PLAYER_START) {
+                        audio_i2s_clear_buffer(&ctx.i2s);
                         audio_i2s_set_sample_rate(&ctx.i2s, msg.arg);
                         player_report_buffering();
                         ctx.state = PLAYER_BUFFERING;
