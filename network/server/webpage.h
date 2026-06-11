@@ -1,4 +1,6 @@
-const char webpage[] = R"HTML(
+#pragma once
+
+static const char *webpage = R"HTML(
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -220,7 +222,10 @@ const char webpage[] = R"HTML(
         document.getElementById("status").textContent = text;
     }
 
-    /* STATUS POLLING */
+    let lastVolume = null;
+    let lastUrl = null;
+    let lastState = null;
+
     async function updateStatus() {
         try {
             const res = await fetch("/status");
@@ -228,42 +233,48 @@ const char webpage[] = R"HTML(
 
             const data = await res.json();
 
-            // volume sync
-            if (typeof data.volume === "number") {
+            if (typeof data.volume === "number" && data.volume !== lastVolume) {
+                lastVolume = data.volume;
+
                 volumeSlider.value = data.volume;
                 volumeValue.textContent = data.volume + "%";
             }
 
-            // URL display
-            const nowPlaying = document.getElementById("nowPlaying");
+            const url = data.url || "";
 
-            if (!data.url || data.url.length === 0) {
-                nowPlaying.textContent = "Nothing playing";
-            } else {
-                nowPlaying.textContent = data.url;
+            if (url !== lastUrl) {
+                lastUrl = url;
+
+                const nowPlaying = document.getElementById("nowPlaying");
+                nowPlaying.textContent = url.length === 0
+                    ? "Nothing playing"
+                    : url;
             }
 
-            // state mapping
-            const state = document.getElementById("state");
+            if (data.state !== lastState) {
+                lastState = data.state;
 
-            let text = "● Unknown";
-            let cls = "red"; // default
+                const state = document.getElementById("state");
 
-            switch (data.state) {
-                case 0: text = "● Getting link"; cls = "yellow"; break;
-                case 1: text = "● Getting IP"; cls = "yellow"; break;
-                case 2: text = "● Ready"; cls = "green"; break;
-                case 3: text = "● Starting stream"; cls = "yellow"; break;
-                case 4: text = "● Starting decoder"; cls = "yellow"; break;
-                case 5: text = "● Starting player"; cls = "yellow"; break;
-                case 6: text = "● Playing"; cls = "green"; break;
-                case 7: text = "● Awaiting stream restart"; cls = "yellow"; break;
-                case 8: text = "● Error"; cls = "red"; break;
-                default: text = "● Unknown"; cls = "red"; break;
+                let text = "● Unknown";
+                let cls = "red";
+
+                switch (data.state) {
+                    case 0: text = "● Getting link"; cls = "yellow"; break;
+                    case 1: text = "● Getting IP"; cls = "yellow"; break;
+                    case 2: text = "● Ready"; cls = "green"; break;
+                    case 3: text = "● Starting stream"; cls = "yellow"; break;
+                    case 4: text = "● Starting decoder"; cls = "yellow"; break;
+                    case 5: text = "● Starting player"; cls = "yellow"; break;
+                    case 6: text = "● Playing"; cls = "green"; break;
+                    case 7: text = "● Awaiting stream restart"; cls = "yellow"; break;
+                    case 8: text = "● Error"; cls = "red"; break;
+                    default: text = "● Unknown"; cls = "red"; break;
+                }
+
+                state.textContent = text;
+                state.className = `value ${cls}`;
             }
-
-            state.textContent = text;
-            state.className = `value ${cls}`;
 
         } catch (e) {
             setStatus("Status update failed");
