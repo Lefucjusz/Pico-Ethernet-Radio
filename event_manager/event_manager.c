@@ -1,6 +1,7 @@
 #include "event_manager.h"
 #include <FreeRTOS.h>
 #include <task.h>
+#include <timers.h>
 #include <ipc_context.h>
 #include <ipc_message.h>
 #include <radio_state.h>
@@ -12,7 +13,18 @@
 #define EVT_MGR_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 1)
 #define EVT_MGR_TASK_PRIO 1
 
-static const ipc_ctx_t *ipc;
+#define EVT_MGR_RESTART_TIMER_NAME "restart_timer"
+#define EVT_MGR_RESTART_TIMER_BASE_PERIOD_TICKS pdMS_TO_TICKS(1000)
+#define EVT_MGR_RESTART_MAX_ATTEMPTS 4
+
+typedef struct
+{
+    const ipc_ctx_t *ipc;
+    TimerHandle_t restart_timer;
+    size_t restart_attempts;
+} evt_mgr_ctx_t;
+
+static evt_mgr_ctx_t ctx;
 
 static void evt_mgr_stream_start(const char *url)
 {
@@ -20,15 +32,15 @@ static void evt_mgr_stream_start(const char *url)
         .type = IPC_MSG_STREAM_START,
         .url = (void *)url
     };
-    xQueueSend(ipc->stream_q, &msg, 0);
+    xQueueSend(ctx.ipc->stream_q, &msg, 0);
 }
 
-static void evt_mgr_connection_stop(void)
+static void evt_mgr_stream_stop(void)
 {
     ipc_stream_msg_t msg = {
         .type = IPC_MSG_STREAM_STOP
     };
-    xQueueSend(ipc->stream_q, &msg, 0);
+    xQueueSend(ctx.ipc->stream_q, &msg, 0);
 }
 
 static void evt_mgr_decoder_start(void)
@@ -36,7 +48,7 @@ static void evt_mgr_decoder_start(void)
     ipc_decoder_msg_t msg = {
         .type = IPC_MSG_DECODER_START
     };
-    xQueueSend(ipc->decoder_q, &msg, 0);
+    xQueueSend(ctx.ipc->decoder_q, &msg, 0);
 }
 
 static void evt_mgr_decoder_stop(void)
@@ -44,7 +56,7 @@ static void evt_mgr_decoder_stop(void)
     ipc_decoder_msg_t msg = {
         .type = IPC_MSG_DECODER_STOP
     };
-    xQueueSend(ipc->decoder_q, &msg, 0);
+    xQueueSend(ctx.ipc->decoder_q, &msg, 0);
 }
 
 static void evt_mgr_player_set_volume(uint8_t volume)
@@ -53,7 +65,7 @@ static void evt_mgr_player_set_volume(uint8_t volume)
         .type = IPC_MSG_PLAYER_SET_VOLUME,
         .arg = volume
     };
-    xQueueSend(ipc->player_q, &msg, 0);
+    xQueueSend(ctx.ipc->player_q, &msg, 0);
 }
 
 static void evt_mgr_player_start(uint16_t sample_rate)
@@ -62,7 +74,7 @@ static void evt_mgr_player_start(uint16_t sample_rate)
         .type = IPC_MSG_PLAYER_START,
         .arg = sample_rate
     };
-    xQueueSend(ipc->player_q, &msg, 0);
+    xQueueSend(ctx.ipc->player_q, &msg, 0);
 }
 
 static void evt_mgr_player_stop(void)
@@ -70,7 +82,7 @@ static void evt_mgr_player_stop(void)
     ipc_player_msg_t msg = {
         .type = IPC_MSG_PLAYER_STOP
     };
-    xQueueSend(ipc->player_q, &msg, 0);
+    xQueueSend(ctx.ipc->player_q, &msg, 0);
 }
 
 static void evt_mgr_server_send_status(const radio_status_t *status)
@@ -79,31 +91,66 @@ static void evt_mgr_server_send_status(const radio_status_t *status)
         .type = IPC_MSG_UI_STATUS,
         .status = *status
     };
-    xQueueSend(ipc->server_q, &msg, 0);
+    xQueueSend(ctx.ipc->server_q, &msg, 0);
+}
+
+static void evt_mgr_restart_timer_callback(TimerHandle_t t)
+{
+    ipc_manager_msg_t msg = {
+        .type = IPC_MSG_MANAGER_RESTART_STREAM
+    };
+    xQueueSend(ctx.ipc->manager_q, &msg, 0);
+}
+
+static bool evt_mgr_restart_reschedule(void)
+{
+    if (ctx.restart_attempts >= EVT_MGR_RESTART_MAX_ATTEMPTS) {
+        LOG_ERROR("Restart attempts limit reached!");
+        return false;
+    }
+
+    LOG_INFO("Restarting (%u/%u)...", ctx.restart_attempts + 1, EVT_MGR_RESTART_MAX_ATTEMPTS);
+
+    const TickType_t restart_period = EVT_MGR_RESTART_TIMER_BASE_PERIOD_TICKS << ctx.restart_attempts; // Exponential backoff
+    LOG_DEBUG("Restart delay: %ums", pdTICKS_TO_MS(restart_period));
+    xTimerChangePeriod(ctx.restart_timer, restart_period, 0);
+    ++ctx.restart_attempts;
+
+    return true;
+}
+
+static void evt_mgr_restart_abort(void)
+{
+    xTimerStop(ctx.restart_timer, 0);
 }
 
 static void evt_mgr_task(void *arg)
 {
-    ipc = ipc_context_get();
-
-    ipc_manager_msg_t msg;
-
     radio_status_t status = {0};
     radio_state_t new_state;
+    ipc_manager_msg_t msg;
+
+    ctx.ipc = ipc_context_get();
+    ctx.restart_timer = xTimerCreate(EVT_MGR_RESTART_TIMER_NAME,
+                                     EVT_MGR_RESTART_TIMER_BASE_PERIOD_TICKS,
+                                     pdFALSE,
+                                     NULL,
+                                     evt_mgr_restart_timer_callback);
 
     status.volume = 50;
 
     LOG_INFO("Started at core %d", portGET_CORE_ID());
 
     while (1) {
-        xQueueReceive(ipc->manager_q, &msg, portMAX_DELAY);
+        xQueueReceive(ctx.ipc->manager_q, &msg, portMAX_DELAY);
 
         if (msg.type == IPC_MSG_UI_GET_STATUS) {
             evt_mgr_server_send_status(&status);
             continue;
         }
 
-        switch (status.state) {
+        new_state = status.state;
+        switch (status.state) { // TODO add missing state transitions
             case RADIO_STATE_GET_LINK:
                 switch (msg.type) {
                     case IPC_MSG_NETWORK_LINK_UP:
@@ -121,6 +168,11 @@ static void evt_mgr_task(void *arg)
                     case IPC_MSG_NETWORK_GOT_IP:
                         LOG_INFO("Got IP!");
                         new_state = RADIO_STATE_READY;
+                        break;
+
+                    case IPC_MSG_NETWORK_LINK_DOWN:
+                        LOG_INFO("Link DOWN!");
+                        new_state = RADIO_STATE_GET_LINK;
                         break;
 
                     default:
@@ -141,6 +193,11 @@ static void evt_mgr_task(void *arg)
                         evt_mgr_player_set_volume(status.volume);
                         break;
 
+                    case IPC_MSG_NETWORK_LINK_DOWN:
+                        LOG_INFO("Link DOWN!");
+                        new_state = RADIO_STATE_GET_LINK;
+                        break;
+
                     default:
                         break;
                 }
@@ -155,8 +212,13 @@ static void evt_mgr_task(void *arg)
                         break;
 
                     case IPC_MSG_STREAM_FAIL:
-                        LOG_FATAL("Stream failed!");
-                        configASSERT(0); // TODO at this development stage it's fatal
+                        LOG_ERROR("Stream failed!");
+                        if (evt_mgr_restart_reschedule()) {
+                            new_state = RADIO_STATE_AWAITING_RESTART;
+                        }
+                        else {
+                            new_state = RADIO_STATE_ERROR;
+                        }
                         break;
 
                     default:
@@ -173,8 +235,14 @@ static void evt_mgr_task(void *arg)
                         break;
 
                     case IPC_MSG_DECODER_FAIL:
-                        LOG_FATAL("Decoder failed!");
-                        configASSERT(0); // TODO at this development stage it's fatal
+                        LOG_ERROR("Decoder failed!");
+                        evt_mgr_stream_stop();
+                        if (evt_mgr_restart_reschedule()) {
+                            new_state = RADIO_STATE_AWAITING_RESTART;
+                        }
+                        else {
+                            new_state = RADIO_STATE_ERROR;
+                        }
                         break;
 
                     default:
@@ -186,33 +254,34 @@ static void evt_mgr_task(void *arg)
                 switch (msg.type) {
                     case IPC_MSG_PLAYER_RUNNING:
                         LOG_INFO("Player running!");
+                        ctx.restart_attempts = 0;
                         new_state = RADIO_STATE_PLAYBACK_RUNNING;
                         break;
 
                     default:
                         break;
                     }
-                    // TODO stop, link down etc in all other states too
                 break;
 
             case RADIO_STATE_PLAYBACK_RUNNING:
-                LOG_INFO("Message: %d", msg.type);
                 switch (msg.type) {
                     case IPC_MSG_NETWORK_LINK_DOWN:
                         evt_mgr_player_stop();
                         evt_mgr_decoder_stop();
-                        evt_mgr_connection_stop();
+                        evt_mgr_stream_stop();
                         new_state = RADIO_STATE_GET_LINK;
                         break;
 
                     case IPC_MSG_STREAM_FAIL:
+                        LOG_ERROR("Stream failed!");
                         evt_mgr_player_stop();
                         evt_mgr_decoder_stop();
-                        evt_mgr_stream_start(status.stream_url); // Try to restart the connection
-
-                        // TODO retry count, backoff
-
-                        new_state = RADIO_STATE_STARTING_STREAM;
+                        if (evt_mgr_restart_reschedule()) {
+                            new_state = RADIO_STATE_AWAITING_RESTART;
+                        }
+                        else {
+                            new_state = RADIO_STATE_ERROR;
+                        }
                         break;
 
                     case IPC_MSG_UI_SET_VOLUME:
@@ -223,13 +292,62 @@ static void evt_mgr_task(void *arg)
                     case IPC_MSG_UI_STOP_PLAYBACK:
                         evt_mgr_player_stop();
                         evt_mgr_decoder_stop();
-                        evt_mgr_connection_stop();
+                        evt_mgr_stream_stop();
+                        new_state = RADIO_STATE_READY;
+                        break;
+
+                    default:
+                        LOG_INFO("Unhandled message: %d", msg.type);
+                        break;
+                }
+                break;
+
+            case RADIO_STATE_AWAITING_RESTART:
+                switch (msg.type) {
+                    case IPC_MSG_MANAGER_RESTART_STREAM:
+                        evt_mgr_stream_start(status.stream_url);
+                        new_state = RADIO_STATE_STARTING_STREAM;
+                        break;
+
+                    case IPC_MSG_NETWORK_LINK_DOWN:
+                        evt_mgr_restart_abort();
+                        new_state = RADIO_STATE_GET_LINK;
+                        break;
+
+                    case IPC_MSG_UI_STOP_PLAYBACK:
+                        evt_mgr_restart_abort();
                         new_state = RADIO_STATE_READY;
                         break;
 
                     default:
                         break;
                 }
+                break;
+
+            case RADIO_STATE_ERROR:
+                switch (msg.type) {
+                    case IPC_MSG_NETWORK_LINK_DOWN:
+                        new_state = RADIO_STATE_GET_LINK;
+                        break;
+
+                    case IPC_MSG_UI_STOP_PLAYBACK:
+                        ctx.restart_attempts = 0;
+                        new_state = RADIO_STATE_READY;
+                        break;
+
+                    case IPC_MSG_UI_START_PLAYBACK:
+                        ctx.restart_attempts = 0;
+                        strlcpy(status.stream_url, msg.arg, sizeof(status.stream_url));
+                        evt_mgr_stream_start(status.stream_url);
+                        new_state = RADIO_STATE_STARTING_STREAM;
+                        break;
+
+                    case IPC_MSG_UI_SET_VOLUME:
+                        status.volume = (uintptr_t)msg.arg;
+                        evt_mgr_player_set_volume(status.volume);
+                        break;
+                }
+                break;
 
             default:
                 break;

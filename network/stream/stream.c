@@ -13,6 +13,7 @@
 
 #define STREAM_HTTP_DEFAULT_PORT 80
 #define STREAM_RECV_TIMEOUT_S 5
+#define STREAM_CONNECT_TIMEOUT_S 5
 #define STREAM_BUFFER_SEND_TIMEOUT_TICKS pdMS_TO_TICKS(1000)
 
 #define STREAM_HTTP_STATUS_OK 200
@@ -241,12 +242,12 @@ static void stream_task(void *arg)
 {
     static uint8_t http_buf[2048];
 
-    stream_state_t state;
+    stream_state_t state = STREAM_IDLE;
     stream_url_t url;
     ipc_stream_msg_t msg;
     size_t header_block_size;
     int sock;
-    
+
     ipc = ipc_context_get();
 
     LOG_INFO("Started at core %d", portGET_CORE_ID());

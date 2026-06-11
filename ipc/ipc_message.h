@@ -41,7 +41,9 @@ typedef enum
     IPC_MSG_PLAYER_STOP,
     IPC_MSG_PLAYER_SET_VOLUME,
 
-    IPC_MSG_UI_STATUS
+    IPC_MSG_UI_STATUS,
+
+    IPC_MSG_MANAGER_RESTART_STREAM // Internal message
 
 } ipc_msg_type_t;
 

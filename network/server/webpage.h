@@ -65,8 +65,9 @@ const char webpage[] = R"HTML(
         margin-bottom: 14px;
     }
 
-    .playing { color: var(--green); }
-    .stopped { color: #ff7070; }
+    .green { color: var(--green); }
+    .yellow { color: #ffcc00; }
+    .red { color: #ff7070; }
 
     .volume-header {
         display: flex;
@@ -245,18 +246,24 @@ const char webpage[] = R"HTML(
             // state mapping
             const state = document.getElementById("state");
 
+            let text = "● Unknown";
+            let cls = "red"; // default
+
             switch (data.state) {
-                case 0: state.textContent = "● Getting link"; break;
-                case 1: state.textContent = "● Getting IP"; break;
-                case 2: state.textContent = "● Ready"; break;
-                case 3: state.textContent = "● Connecting"; break;
-                case 4: state.textContent = "● Starting decoder"; break;
-                case 5: state.textContent = "● Starting player"; break;
-                case 6: state.textContent = "● Playing"; break;
-                default: state.textContent = "● Unknown"; break;
+                case 0: text = "● Getting link"; cls = "yellow"; break;
+                case 1: text = "● Getting IP"; cls = "yellow"; break;
+                case 2: text = "● Ready"; cls = "green"; break;
+                case 3: text = "● Starting stream"; cls = "yellow"; break;
+                case 4: text = "● Starting decoder"; cls = "yellow"; break;
+                case 5: text = "● Starting player"; cls = "yellow"; break;
+                case 6: text = "● Playing"; cls = "green"; break;
+                case 7: text = "● Awaiting stream restart"; cls = "yellow"; break;
+                case 8: text = "● Error"; cls = "red"; break;
+                default: text = "● Unknown"; cls = "red"; break;
             }
 
-            state.className = (data.state === 6) ? "value playing" : "value";
+            state.textContent = text;
+            state.className = `value ${cls}`;
 
         } catch (e) {
             setStatus("Status update failed");

@@ -5,10 +5,12 @@ static const char *radio_state_names[] = {
     "GET_LINK",
     "GET_IP",
     "READY",
-    "CONNECTING",
+    "STARTING_STREAM",
     "STARTING_DECODER",
     "STARTING_PLAYER",
-    "PLAYBACK_RUNNING"
+    "PLAYBACK_RUNNING",
+    "AWAITING_RECONNECT",
+    "ERROR"
 };
 
 static_assert(RADIO_STATE_COUNT == UTILS_ARRAY_COUNT(radio_state_names), "States enum and name look-up table out of sync!");

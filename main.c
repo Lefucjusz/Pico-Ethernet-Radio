@@ -20,6 +20,24 @@
 
 #define LED_PIN 25
 
+// void print_task_stacks(void)
+// {
+//     TaskStatus_t tasks[16];
+//     UBaseType_t n = uxTaskGetSystemState(tasks, 16, NULL);
+
+//     for (UBaseType_t i = 0; i < n; i++) {
+
+//         size_t free_bytes =
+//             tasks[i].usStackHighWaterMark * sizeof(StackType_t);
+
+//         LOG_INFO("%-16s free stack: %uB",
+//                tasks[i].pcTaskName,
+//                (unsigned)free_bytes);
+
+//     }
+//     LOG_INFO("free heap: %uB", xPortGetFreeHeapSize());
+// }
+
 static void update_stream_bufs_state(void)
 {
     static size_t cnt;
@@ -36,6 +54,7 @@ static void update_stream_bufs_state(void)
 
     ++cnt;
     if (cnt >= 100) {
+        // print_task_stacks();
         LOG_DEBUG("Mean TCP buffer level: %u%%", (100 * recv_sum / cnt) / recv_total);
         LOG_DEBUG("Mean PCM buffer level: %u%%", (100 * pcm_sum / cnt) / pcm_total);
         cnt = 0;
