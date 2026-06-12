@@ -227,7 +227,7 @@ int helix_mp3_deinit(helix_mp3_t *mp3)
     }
     if (mp3->mp3_buffer != NULL) {
         free(mp3->mp3_buffer);
-        mp3->pcm_buffer = NULL;
+        mp3->mp3_buffer = NULL;
     }
     MP3FreeDecoder(mp3->dec);
 

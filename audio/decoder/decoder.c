@@ -13,7 +13,7 @@
 #define DECODER_BUFFER_SIZE_FRAMES (1024 * 1)
 #define DECODER_BUFFER_SIZE_BYTES AUDIO_FRAMES_TO_BYTES(DECODER_BUFFER_SIZE_FRAMES)
 
-#define DECODER_STATE_PROCESSING_PERIOD_TICKS pdMS_TO_TICKS(500)
+#define DECODER_BUFFER_SEND_TIMEOUT_TICKS pdMS_TO_TICKS(1000)
 
 typedef enum
 {
@@ -25,7 +25,6 @@ typedef enum
 typedef struct
 {
     const ipc_ctx_t *ipc;
-    decoder_state_t state;
     helix_mp3_t mp3;
     helix_mp3_io_t mp3_io;
     uint8_t pcm_buffer[DECODER_BUFFER_SIZE_BYTES];
@@ -74,24 +73,46 @@ static void decoder_report_buffering(void)
     xQueueSend(ctx.ipc->manager_q, &msg, 0);
 }
 
+static void decoder_report_fail(void)
+{
+    ipc_manager_msg_t msg = {
+        .type = IPC_MSG_DECODER_FAIL
+    };
+    xQueueSend(ctx.ipc->manager_q, &msg, 0);
+}
+
+static TickType_t decoder_get_queue_block_time(decoder_state_t state)
+{
+    if (state == DECODER_IDLE) {
+        return portMAX_DELAY;
+    }
+    return pdMS_TO_TICKS(1);
+}
+
 static void decoder_task(void *arg)
 {
+    ipc_decoder_msg_t msg;
+    decoder_state_t state;
+
+    ctx.ipc = ipc_context_get();
     ctx.mp3_io.read = decoder_read_callback;
     ctx.mp3_io.seek = decoder_seek_callback;
 
-    ipc_decoder_msg_t msg;
+    const size_t recv_buffer_size = xStreamBufferBytesAvailable(ctx.ipc->recv_buffer) + xStreamBufferSpacesAvailable(ctx.ipc->recv_buffer);
+    ctx.watermark_low = 2 * recv_buffer_size / 10; // 20%
+    ctx.watermark_high = 8 * recv_buffer_size / 10; // 80%
 
     LOG_INFO("Started at core %d", portGET_CORE_ID());
 
     while (1) {
         /* Check if any message pending */
-        if (xQueueReceive(ctx.ipc->decoder_q, &msg, ctx.state == DECODER_IDLE ? portMAX_DELAY : 1) == pdTRUE) {
-            switch (ctx.state) {
+        if (xQueueReceive(ctx.ipc->decoder_q, &msg, decoder_get_queue_block_time(state)) == pdTRUE) {
+            switch (state) {
                 case DECODER_IDLE:
                     if (msg.type == IPC_MSG_DECODER_START) {
                         xStreamBufferReset(ctx.ipc->pcm_buffer);
                         decoder_report_buffering();
-                        ctx.state = DECODER_BUFFERING;
+                        state = DECODER_BUFFERING;
                         LOG_DEBUG("IDLE -> BUFFERING");
                     }
                     break;
@@ -99,7 +120,7 @@ static void decoder_task(void *arg)
                 case DECODER_BUFFERING:
                     if (msg.type == IPC_MSG_DECODER_STOP) {
                         decoder_report_stopped();
-                        ctx.state = DECODER_IDLE;
+                        state = DECODER_IDLE;
                         LOG_DEBUG("BUFFERING -> IDLE");
                     }
                     break;
@@ -107,7 +128,7 @@ static void decoder_task(void *arg)
                 case DECODER_RUNNING:
                     if (msg.type == IPC_MSG_DECODER_STOP) {
                         decoder_report_stopped();
-                        ctx.state = DECODER_IDLE;
+                        state = DECODER_IDLE;
                         LOG_DEBUG("RUNNING -> IDLE");
                     }
                     break;
@@ -117,12 +138,12 @@ static void decoder_task(void *arg)
             }
         }
 
-        /* Periodic state processing, runs at any received event or every ??? */
+        /* Periodic state processing, runs at any received event or every 1ms */
         const size_t bytes_available = xStreamBufferBytesAvailable(ctx.ipc->recv_buffer);
 
-        switch (ctx.state) {
+        switch (state) {
             case DECODER_BUFFERING:
-                vTaskDelay(100);
+                vTaskDelay(100); // TODO
                 if (bytes_available > ctx.watermark_high) {
                     LOG_DEBUG("Buffer ready: %uB", bytes_available);
 
@@ -130,10 +151,14 @@ static void decoder_task(void *arg)
                     int err = helix_mp3_init(&ctx.mp3, &ctx.mp3_io);
                     if (err) {
                         LOG_ERROR("Init failed, error %d", err);
+                        decoder_report_fail();
+                        state = DECODER_IDLE;
+                        LOG_DEBUG("BUFFERING -> IDLE");
                     }
                     else {
                         decoder_report_running();
-                        ctx.state = DECODER_RUNNING;
+                        state = DECODER_RUNNING;
+                        LOG_DEBUG("BUFFERING -> RUNNING");
                     }
                 }
                 break;
@@ -141,11 +166,12 @@ static void decoder_task(void *arg)
             case DECODER_RUNNING:
                 if (bytes_available < ctx.watermark_low) {
                     decoder_report_buffering();
-                    ctx.state = DECODER_BUFFERING;
+                    state = DECODER_BUFFERING;
+                    LOG_DEBUG("RUNNING -> BUFFERING");
                 }
                 else {
                     const size_t frames_read = helix_mp3_read_pcm_frames_s16(&ctx.mp3, (int16_t *)ctx.pcm_buffer, DECODER_BUFFER_SIZE_FRAMES);
-                    xStreamBufferSend(ctx.ipc->pcm_buffer, ctx.pcm_buffer, AUDIO_FRAMES_TO_BYTES(frames_read), 1000); // TODO magic number
+                    xStreamBufferSend(ctx.ipc->pcm_buffer, ctx.pcm_buffer, AUDIO_FRAMES_TO_BYTES(frames_read), DECODER_BUFFER_SEND_TIMEOUT_TICKS);
                 }
                 break;
 
@@ -157,12 +183,6 @@ static void decoder_task(void *arg)
 
 void decoder_init(void)
 {
-    ctx.ipc = ipc_context_get();
-
-    const size_t recv_buffer_size = xStreamBufferBytesAvailable(ctx.ipc->recv_buffer) + xStreamBufferSpacesAvailable(ctx.ipc->recv_buffer);
-    ctx.watermark_low = 2 * recv_buffer_size / 10; // 20%
-    ctx.watermark_high = 8 * recv_buffer_size / 10; // 80%
-
     xTaskCreate(decoder_task,
                 DECODER_TASK_NAME,
                 DECODER_TASK_STACK_SIZE,
