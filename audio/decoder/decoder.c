@@ -143,7 +143,6 @@ static void decoder_task(void *arg)
 
         switch (state) {
             case DECODER_BUFFERING:
-                vTaskDelay(100); // TODO
                 if (bytes_available > ctx.watermark_high) {
                     LOG_DEBUG("Buffer ready: %uB", bytes_available);
 
