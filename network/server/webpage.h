@@ -9,6 +9,7 @@ static const char *webpage = R"HTML(
     <title>RP2040 Internet Radio</title>
 
     <style>
+
     :root {
         --bg: #0b0b0b;
         --card: #161616;
@@ -20,7 +21,9 @@ static const char *webpage = R"HTML(
         --red-dark: #7f1d1d;
     }
 
-    * { box-sizing: border-box; }
+    * {
+        box-sizing: border-box;
+    }
 
     body {
         margin: 0;
@@ -31,13 +34,12 @@ static const char *webpage = R"HTML(
     }
 
     .card {
-        max-width: 500px;
-        margin: 0 auto;
+        max-width: 550px;
+        margin: auto;
         background: var(--card);
         border: 1px solid var(--border);
         border-radius: 16px;
         padding: 24px;
-        box-shadow: 0 0 30px rgba(0,0,0,0.5);
     }
 
     .title {
@@ -59,15 +61,16 @@ static const char *webpage = R"HTML(
     .label {
         color: #8aa0aa;
         font-size: 0.8em;
+        margin-top: 6px;
         margin-bottom: 6px;
     }
 
     .value {
-        word-break: break-all;
         margin-bottom: 14px;
+        word-break: break-word;
     }
 
-    .green { color: var(--green); }
+    .green { color: #64ff64; }
     .yellow { color: #ffcc00; }
     .red { color: #ff7070; }
 
@@ -99,6 +102,53 @@ static const char *webpage = R"HTML(
         margin-bottom: 20px;
     }
 
+    select {
+        width: 100%;
+        height: 160px;
+        padding: 10px;
+        background: #121212;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        font-size: 0.95em;
+        margin-bottom: 8px;
+        outline: none;
+    }
+
+    select option {
+        padding: 6px;
+        background: #121212;
+        color: var(--text);
+    }
+
+    select option:hover {
+        background: #1f1f1f;
+    }
+
+    select option:checked {
+        background: var(--green-dark);
+        color: white;
+    }
+
+    select::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    select::-webkit-scrollbar-track {
+        background: #121212;
+        margin: 6px 0;
+        border-radius: 10px;
+    }
+
+    select::-webkit-scrollbar-thumb {
+        background: #2a2a2a;
+        border-radius: 10px;
+    }
+
+    select::-webkit-scrollbar-thumb:hover {
+        background: #64ff64;
+    }
+
     .buttons {
         display: flex;
         gap: 10px;
@@ -117,11 +167,13 @@ static const char *webpage = R"HTML(
         font-weight: bold;
     }
 
-    .play-btn { background: var(--green-dark); }
-    .play-btn:hover { filter: brightness(1.15); }
+    .play-btn {
+        background: var(--green-dark);
+    }
 
-    .stop-btn { background: var(--red-dark); }
-    .stop-btn:hover { filter: brightness(1.15); }
+    .stop-btn {
+        background: var(--red-dark);
+    }
 
     .status {
         margin-top: 15px;
@@ -130,7 +182,6 @@ static const char *webpage = R"HTML(
         border-radius: 10px;
         border: 1px solid #333;
         color: #aaa;
-        font-size: 0.95em;
     }
     </style>
     </head>
@@ -138,7 +189,6 @@ static const char *webpage = R"HTML(
     <body>
 
     <div class="card">
-
         <div class="title">📻 RP2040 INTERNET RADIO</div>
 
         <div class="display">
@@ -146,7 +196,7 @@ static const char *webpage = R"HTML(
             <div class="value" id="nowPlaying">Nothing playing</div>
 
             <div class="label">STATUS</div>
-            <div class="value playing" id="state">● Ready</div>
+            <div class="value green" id="state">● Ready</div>
         </div>
 
         <div class="volume-header">
@@ -154,18 +204,13 @@ static const char *webpage = R"HTML(
             <span id="volumeValue">50%</span>
         </div>
 
-        <input type="range" id="volume" min="0" max="100">
+        <input type="range" id="volumeSlider" min="0" max="100" value="50">
+
+        <div class="label">STATIONS</div>
+        <select id="stationList" size="10"></select>
 
         <div class="label">STREAM URL</div>
-
-        <input type="text" id="streamUrl" placeholder="stream.example.com(:8000)" list="stations">
-
-        <datalist id="stations">
-            <option value="193.0.98.66:8005">Radio Kampus</option>
-            <option value="mp3.polskieradio.pl:8904">Trójka</option>
-            <option value="stream9.nadaje.com:8002/live">Radio Rockserwis FM</option>
-            <option value="stream.fr.morow.com:8080/morow_med.mp3">MOROW</option>
-        </datalist>
+        <input type="text" id="streamUrl" placeholder="Custom stream URL">
 
         <div class="buttons">
             <button class="play-btn" onclick="startStream()">▶ PLAY</button>
@@ -173,118 +218,224 @@ static const char *webpage = R"HTML(
         </div>
 
         <div class="status" id="status">Ready</div>
-
     </div>
 
     <script>
-    const volumeSlider = document.getElementById("volume");
+
+    const stations =
+    [
+        { name: "Jedynka", url: "mp3.polskieradio.pl:8900" },
+        { name: "Dwójka", url: "mp3.polskieradio.pl:8902" },
+        { name: "Trójka", url: "mp3.polskieradio.pl:8904" },
+        { name: "RMF FM", url: "195.150.20.242:8000/rmf_fm" },
+        { name: "Radio ZET", url: "zt04.cdn.eurozet.pl/ZET090.mp3" },
+        { name: "Radio Złote Przeboje", url: "poznan7.radio.pionier.net.pl:8000/tuba9-1.mp3" },
+        { name: "Antyradio", url: "an04.cdn.eurozet.pl/ant-web.mp3" },
+        { name: "Radio Kampus", url: "193.0.98.66:8005" },
+        { name: "Radio Gdańsk", url: "stream.task.gda.pl:8000/rg1" },
+        { name: "Rockserwis FM", url: "stream9.nadaje.com:8002/live" },
+
+        { name: "KEXP 90.3", url: "kexp.streamguys1.com/kexp128.mp3" },
+        { name: "Le Mellotron", url: "listen.radioking.com/radio/477719/stream/534044" },
+        { name: "Flower Power Radio", url: "uk1.streamingpulse.com:7000/;" },
+        { name: "Psychedelicized", url: "cast1.asurahosting.com/proxy/psychedelicized/stream" },
+        { name: "Radio Caroline", url: "78.129.202.200:8040/;" },
+        { name: "Funky Radio", url: "funkyradio.streamingmedia.it/play.mp3" },
+        { name: "MOROW", url: "stream.fr.morow.com:8080/morow_med.mp3" },
+        { name: "Yacht Rock Miami", url: "usa20.fastcast4u.com:4100/1753014835" },
+        { name: "SomaFM Groove Salad", url: "ice2.somafm.com/groovesalad-128-mp3" },
+        { name: "Ignore Radio Shoegaze", url: "sp1.autopo.st/8026/stream" },
+        { name: "iFusion Radio", url: "listen.radioking.com/radio/523747/stream/582004" },
+        { name: "Jazz24", url: "knkx-live-a.edge.audiocdn.com/6285_128k" }
+    ];
+
+    const STATE = {
+        GET_LINK: 0,
+        GET_IP: 1,
+        READY: 2,
+        START_STREAM: 3,
+        START_DECODER: 4,
+        START_PLAYER: 5,
+        PLAYING: 6,
+        RESTART: 7,
+        ERROR: 8
+    };
+
+    const stationList = document.getElementById("stationList");
+    const streamUrl = document.getElementById("streamUrl");
+    const volumeSlider = document.getElementById("volumeSlider");
     const volumeValue = document.getElementById("volumeValue");
-
-    volumeSlider.addEventListener("input", function() {
-        volumeValue.textContent = this.value + "%";
-    });
-
-    volumeSlider.addEventListener("change", async function() {
-        try {
-            await fetch("/volume?value=" + this.value);
-            setStatus("Volume set to " + this.value + "%");
-        } catch(e) {
-            setStatus("Failed to set volume");
-        }
-    });
-
-    async function startStream() {
-        const url = document.getElementById("streamUrl").value.trim();
-
-        if (!url) {
-            setStatus("Please enter a stream URL");
-            return;
-        }
-
-        try {
-            await fetch("/start?url=" + url);
-            setStatus("Stream started");
-        } catch(e) {
-            setStatus("Failed to start stream");
-        }
-    }
-
-    async function stopStream() {
-        try {
-            await fetch("/stop");
-            setStatus("Stream stopped");
-        } catch(e) {
-            setStatus("Failed to stop stream");
-        }
-    }
-
-    function setStatus(text) {
-        document.getElementById("status").textContent = text;
-    }
+    const nowPlaying = document.getElementById("nowPlaying");
+    const state = document.getElementById("state");
 
     let lastVolume = null;
     let lastUrl = null;
     let lastState = null;
 
-    async function updateStatus() {
+    function renderStations()
+    {
+        stationList.innerHTML = "";
+
+        stations.forEach((station, index) => {
+            const option = document.createElement("option");
+
+            option.textContent = `${String(index + 1).padStart(2, "0")}. ${station.name}`;
+            option.value = station.url;
+
+            stationList.appendChild(option);
+        });
+    }
+
+    renderStations();
+
+    stationList.addEventListener("change", () => {
+        streamUrl.value = stationList.value;
+    });
+
+    volumeSlider.addEventListener("input", (e) => {
+        volumeValue.textContent = `${e.target.value}%`;
+    });
+
+    volumeSlider.addEventListener("change", async (e) => {
+        try {
+            await fetch(`/volume?value=${e.target.value}`);
+            setStatus(`Volume set to ${e.target.value}%`);
+        }
+        catch {
+            setStatus("Failed to set volume");
+        }
+    });
+
+    async function startStream()
+    {
+        if (lastState !== STATE.READY) {
+            stopStream();
+        }
+
+        const url = streamUrl.value.trim();
+        if (!url) {
+            setStatus("Please select a station");
+            return;
+        }
+
+        try {
+            await fetch(`/start?url=${url}`);
+
+            setStatus("Starting stream...");
+            document.getElementById("nowPlaying").textContent = url;
+        }
+        catch {
+            setStatus("Failed to start stream");
+        }
+    }
+
+    async function stopStream()
+    {
+        try {
+            await fetch("/stop");
+            setStatus("Stopped");
+        }
+        catch {
+            setStatus("Failed to stop stream");
+        }
+    }
+
+    function setStatus(text)
+    {
+        document.getElementById("status").textContent = text;
+    }
+
+    async function updateStatus()
+    {
         try {
             const res = await fetch("/status");
-            if (!res.ok) return;
+            if (!res.ok) {
+                return;
+            }
 
             const data = await res.json();
 
-            if (typeof data.volume === "number" && data.volume !== lastVolume) {
+            if (data.volume !== lastVolume) {
                 lastVolume = data.volume;
 
                 volumeSlider.value = data.volume;
-                volumeValue.textContent = data.volume + "%";
+                volumeValue.textContent = `${data.volume}%`;
             }
 
             const url = data.url || "";
-
             if (url !== lastUrl) {
                 lastUrl = url;
 
-                const nowPlaying = document.getElementById("nowPlaying");
-                nowPlaying.textContent = url.length === 0
-                    ? "Nothing playing"
-                    : url;
+                nowPlaying.textContent = url || "Nothing playing";
             }
 
             if (data.state !== lastState) {
                 lastState = data.state;
 
-                const state = document.getElementById("state");
-
                 let text = "● Unknown";
                 let cls = "red";
 
                 switch (data.state) {
-                    case 0: text = "● Getting link"; cls = "yellow"; break;
-                    case 1: text = "● Getting IP"; cls = "yellow"; break;
-                    case 2: text = "● Ready"; cls = "green"; break;
-                    case 3: text = "● Starting stream"; cls = "yellow"; break;
-                    case 4: text = "● Starting decoder"; cls = "yellow"; break;
-                    case 5: text = "● Starting player"; cls = "yellow"; break;
-                    case 6: text = "● Playing"; cls = "green"; break;
-                    case 7: text = "● Awaiting stream restart"; cls = "yellow"; break;
-                    case 8: text = "● Error"; cls = "red"; break;
-                    default: text = "● Unknown"; cls = "red"; break;
+                    case STATE.GET_LINK:
+                        text = "● Getting link";
+                        cls = "yellow";
+                        break;
+
+                    case STATE.GET_IP:
+                        text = "● Getting IP";
+                        cls = "yellow";
+                        break;
+
+                    case STATE.READY:
+                        text = "● Ready";
+                        cls = "green";
+                        break;
+
+                    case STATE.START_STREAM:
+                        text = "● Starting stream";
+                        cls = "yellow";
+                        break;
+
+                    case STATE.START_DECODER:
+                        text = "● Starting decoder";
+                        cls = "yellow";
+                        break;
+
+                    case STATE.START_PLAYER:
+                        text = "● Starting player";
+                        cls = "yellow";
+                        break;
+
+                    case STATE.PLAYING:
+                        text = "● Playing";
+                        cls = "green";
+                        break;
+
+                    case STATE.RESTART:
+                        text = "● Awaiting restart";
+                        cls = "yellow";
+                        break;
+
+                    case STATE.ERROR:
+                        text = "● Error";
+                        cls = "red";
+                        break;
                 }
 
                 state.textContent = text;
                 state.className = `value ${cls}`;
             }
-
-        } catch (e) {
+        }
+        catch {
             setStatus("Status update failed");
         }
     }
 
     setInterval(updateStatus, 1000);
-    updateStatus();
+
     </script>
 
     </body>
     </html>
+
 )HTML";

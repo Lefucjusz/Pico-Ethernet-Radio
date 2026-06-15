@@ -8,6 +8,7 @@
 #include <utils.h>
 #include <logger.h>
 #include <stdlib.h>
+#include <hardware/watchdog.h>
 
 #define EVT_MGR_TASK_NAME "event_manager"
 #define EVT_MGR_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 1)
@@ -124,6 +125,12 @@ static void evt_mgr_restart_abort(void)
     xTimerStop(ctx.restart_timer, 0);
 }
 
+static void evt_mgr_reboot(void)
+{
+    watchdog_reboot(0, 0, 1000);
+    while (1) {}
+}
+
 static void evt_mgr_task(void *arg)
 {
     radio_status_t status = {0};
@@ -147,6 +154,11 @@ static void evt_mgr_task(void *arg)
         if (msg.type == IPC_MSG_UI_GET_STATUS) {
             evt_mgr_server_send_status(&status);
             continue;
+        }
+
+        if (msg.type == IPC_MSG_UI_REQUEST_REBOOT) {
+            LOG_INFO("Rebooting...");
+            evt_mgr_reboot();
         }
 
         new_state = status.state;
@@ -237,6 +249,16 @@ static void evt_mgr_task(void *arg)
                     case IPC_MSG_DECODER_FAIL:
                         LOG_ERROR("Decoder failed!");
                         evt_mgr_stream_stop();
+                        if (evt_mgr_restart_reschedule()) {
+                            new_state = RADIO_STATE_AWAITING_RESTART;
+                        }
+                        else {
+                            new_state = RADIO_STATE_ERROR;
+                        }
+                        break;
+
+                    case IPC_MSG_STREAM_FAIL:
+                        evt_mgr_decoder_stop();
                         if (evt_mgr_restart_reschedule()) {
                             new_state = RADIO_STATE_AWAITING_RESTART;
                         }

@@ -13,7 +13,7 @@
 #define SERVER_TASK_PRIO 1
 
 #define SERVER_STATUS_RESPONSE_TIMEOUT_TICKS pdMS_TO_TICKS(500)
-#define SERVER_SEND_CHUNK_SIZE_BYTES 512
+#define SERVER_SEND_CHUNK_SIZE_BYTES 1024
 
 typedef enum
 {
@@ -52,6 +52,7 @@ static void server_handle_volume(int client, const server_http_req_t *req);
 static void server_handle_start(int client, const server_http_req_t *req);
 static void server_handle_stop(int client, const server_http_req_t *req);
 static void server_handle_status(int client, const server_http_req_t *req);
+static void server_handle_reboot(int client, const server_http_req_t *req);
 
 /* Route table */
 static const server_route_t routes[] = {
@@ -59,7 +60,8 @@ static const server_route_t routes[] = {
     {"GET", "/volume", server_handle_volume},
     {"GET", "/start", server_handle_start},
     {"GET", "/stop", server_handle_stop},
-    {"GET", "/status", server_handle_status}
+    {"GET", "/status", server_handle_status},
+    {"GET", "/reboot", server_handle_reboot}
 };
 
 static server_ctx_t ctx;
@@ -264,6 +266,16 @@ static void server_handle_status(int client, const server_http_req_t *req)
     else {
         server_send_response(client, SERVER_HTTP_INTERNAL_ERROR, "text/html", "<h1>500 Internal Server Error</h1>");
     }
+}
+
+static void server_handle_reboot(int client, const server_http_req_t *req)
+{
+    ipc_manager_msg_t msg = {
+        .type = IPC_MSG_UI_REQUEST_REBOOT
+    };
+    xQueueSend(ctx.ipc->manager_q, &msg, 0);
+
+    server_send_response(client, SERVER_HTTP_NO_CONTENT, NULL, NULL);
 }
 
 static int server_create(void)

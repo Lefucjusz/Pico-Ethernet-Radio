@@ -16,4 +16,5 @@ target_link_libraries(event_manager
         logger
         utils
         ipc
+        hardware_watchdog
 )
