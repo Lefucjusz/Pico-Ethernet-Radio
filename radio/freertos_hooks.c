@@ -5,7 +5,7 @@
 #if configUSE_MALLOC_FAILED_HOOK == 1
 void vApplicationMallocFailedHook(void)
 {
-    printf("PANIC: %s\n", __func__);
+    printf("PANIC: %s in %s\n", __func__, pcTaskGetName(NULL));
     configASSERT(0);
 }
 #endif
@@ -13,7 +13,7 @@ void vApplicationMallocFailedHook(void)
 #if configCHECK_FOR_STACK_OVERFLOW > 0
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
-    printf("PANIC: %s: %s", __func__, pcTaskName);
+    printf("PANIC: %s in %s", __func__, pcTaskName);
     configASSERT(0);
 }
 #endif

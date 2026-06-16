@@ -27,6 +27,7 @@ target_link_libraries(network
         lwip
         utils
         gpio_irq
+        fota
     PUBLIC
         ipc
 )

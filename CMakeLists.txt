@@ -33,49 +33,36 @@ project(Pico-Ethernet-Radio C CXX ASM)
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
-# Add executable. Default name is the project name, version 0.1
+add_subdirectory(bootloader)
+add_subdirectory(common)
+add_subdirectory(radio)
 
-add_executable(Pico-Ethernet-Radio main.c freertos_hooks.c)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-pico_set_program_name(Pico-Ethernet-Radio "Pico-Ethernet-Radio")
-pico_set_program_version(Pico-Ethernet-Radio "0.1")
+# Create factory image
+set(FACTORY_BIN ${CMAKE_BINARY_DIR}/factory.bin)
+set(FACTORY_UF2 ${CMAKE_BINARY_DIR}/factory.uf2)
+set(RADIO_UPDATE_BIN ${CMAKE_BINARY_DIR}/radio/radio_update.bin)
 
-# Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(Pico-Ethernet-Radio 1)
-pico_enable_stdio_usb(Pico-Ethernet-Radio 0)
+add_custom_command(
+    OUTPUT
+        ${FACTORY_BIN}
+        ${FACTORY_UF2}
 
-add_subdirectory(audio)
-add_subdirectory(event_manager)
-add_subdirectory(gpio_irq)
-add_subdirectory(ipc)
-add_subdirectory(logger)
-add_subdirectory(network)
-add_subdirectory(utils)
-add_subdirectory(third-party/FreeRTOS)
-add_subdirectory(third-party/lwip)
-add_subdirectory(third-party/Helix-MP3-Decoder)
+    COMMAND ${CMAKE_COMMAND} -E echo "Creating factory image"
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/scripts/create_factory_image.py
+            ${CMAKE_BINARY_DIR}/bootloader/bootloader.bin
+            ${RADIO_UPDATE_BIN}
+            ${FACTORY_BIN}
+            ${FACTORY_UF2}
 
-# Add the standard library to the build
-target_link_libraries(Pico-Ethernet-Radio
-        pico_stdlib
-        freertos_kernel
-        ipc
-        network
-        audio
-        event_manager
-        gpio_irq
-        logger
-        utils
+    DEPENDS
+        bootloader
+        ${RADIO_UPDATE_BIN}
 )
 
-target_link_options(Pico-Ethernet-Radio
-    PRIVATE
-        -Wl,--print-memory-usage
+add_custom_target(factory_image ALL
+    DEPENDS
+        ${FACTORY_UF2}
 )
-
-# Add the standard include files to the build
-target_include_directories(Pico-Ethernet-Radio PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}
-)
-
-pico_add_extra_outputs(Pico-Ethernet-Radio)

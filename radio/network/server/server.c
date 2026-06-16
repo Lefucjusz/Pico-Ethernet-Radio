@@ -7,6 +7,7 @@
 #include <logger.h>
 #include <ipc_context.h>
 #include <ipc_message.h>
+#include <fota.h>
 
 #define SERVER_TASK_NAME "server"
 #define SERVER_TASK_STACK_SIZE UTILS_STACK_BYTES_TO_WORDS(1024 * 1.5)
@@ -28,10 +29,17 @@ typedef struct
 {
     const char *method;
     size_t method_len;
+
     const char *path;
     size_t path_len;
+
     const char *query;
     size_t query_len;
+
+    size_t content_length;
+
+    const char *body;
+    size_t body_len;
 } server_http_req_t;
 
 typedef struct
@@ -53,6 +61,7 @@ static void server_handle_start(int client, const server_http_req_t *req);
 static void server_handle_stop(int client, const server_http_req_t *req);
 static void server_handle_status(int client, const server_http_req_t *req);
 static void server_handle_reboot(int client, const server_http_req_t *req);
+static void server_handle_fota(int client, const server_http_req_t *req);
 
 /* Route table */
 static const server_route_t routes[] = {
@@ -61,10 +70,27 @@ static const server_route_t routes[] = {
     {"GET", "/start", server_handle_start},
     {"GET", "/stop", server_handle_stop},
     {"GET", "/status", server_handle_status},
-    {"GET", "/reboot", server_handle_reboot}
+    {"GET", "/reboot", server_handle_reboot},
+    {"POST", "/fota", server_handle_fota}
 };
 
 static server_ctx_t ctx;
+
+static void server_request_stop(void)
+{
+    ipc_manager_msg_t msg = {
+        .type = IPC_MSG_UI_STOP_PLAYBACK,
+    };
+    xQueueSend(ctx.ipc->manager_q, &msg, 0);
+}
+
+static void server_request_reboot(void)
+{
+    ipc_manager_msg_t msg = {
+        .type = IPC_MSG_UI_REQUEST_REBOOT
+    };
+    xQueueSend(ctx.ipc->manager_q, &msg, 0);
+}
 
 static const char *server_status_str(server_http_status_t status)
 {
@@ -137,6 +163,21 @@ static void server_send_response(int client, int status_code, const char *conten
     }
 }
 
+static void server_send_no_content(int client)
+{
+    server_send_response(client, SERVER_HTTP_NO_CONTENT, NULL, NULL);
+}
+
+static void server_send_bad_request(int client)
+{
+    server_send_response(client, SERVER_HTTP_BAD_REQUEST, "text/html", "<h1>400 Bad Request</h1>");
+}
+
+static void server_send_internal_error(int client)
+{
+    server_send_response(client, SERVER_HTTP_INTERNAL_ERROR, "text/html", "<h1>500 Internal Server Error</h1>");
+}
+
 static bool server_query_get(const server_http_req_t *req, const char *key, const char **out, size_t *len)
 {
     const size_t key_len = strlen(key);
@@ -202,10 +243,10 @@ static void server_handle_volume(int client, const server_http_req_t *req)
         };
         xQueueSend(ctx.ipc->manager_q, &msg, 0);
 
-        server_send_response(client, SERVER_HTTP_NO_CONTENT, NULL, NULL);
+        server_send_no_content(client);
     }
     else {
-        server_send_response(client, SERVER_HTTP_BAD_REQUEST, "text/html", "<h1>400 Bad Request</h1>");
+        server_send_bad_request(client);
     }
 }
 
@@ -220,21 +261,17 @@ static void server_handle_start(int client, const server_http_req_t *req)
         };
         xQueueSend(ctx.ipc->manager_q, &msg, 0);
 
-        server_send_response(client, SERVER_HTTP_NO_CONTENT, NULL, NULL);
+        server_send_no_content(client);
     }
     else {
-        server_send_response(client, SERVER_HTTP_BAD_REQUEST, "text/html", "<h1>400 Bad Request</h1>");
+        server_send_bad_request(client);
     }
 }
 
 static void server_handle_stop(int client, const server_http_req_t *req)
 {
-    ipc_manager_msg_t msg = {
-        .type = IPC_MSG_UI_STOP_PLAYBACK,
-    };
-    xQueueSend(ctx.ipc->manager_q, &msg, 0);
-
-    server_send_response(client, SERVER_HTTP_NO_CONTENT, NULL, NULL);
+    server_request_stop();
+    server_send_no_content(client);
 }
 
 static void server_handle_status(int client, const server_http_req_t *req)
@@ -264,18 +301,62 @@ static void server_handle_status(int client, const server_http_req_t *req)
         server_send_response(client, SERVER_HTTP_OK, "application/json", status_buf);
     }
     else {
-        server_send_response(client, SERVER_HTTP_INTERNAL_ERROR, "text/html", "<h1>500 Internal Server Error</h1>");
+        server_send_internal_error(client);
     }
 }
 
 static void server_handle_reboot(int client, const server_http_req_t *req)
 {
-    ipc_manager_msg_t msg = {
-        .type = IPC_MSG_UI_REQUEST_REBOOT
-    };
-    xQueueSend(ctx.ipc->manager_q, &msg, 0);
+    server_request_reboot();
+    server_send_no_content(client);
+}
+
+/* TODO: this shouldn't be so tightly coupled to server, but I've got no better idea for now. */
+static void server_handle_fota(int client, const server_http_req_t *req)
+{
+    bool status;
+
+    /* Stop the playback */
+    server_request_stop();
+
+    /* Begin the update */
+    status = fota_begin(req->content_length);
+    if (!status) {
+        server_send_bad_request(client);
+        return;
+    }
+
+    /* Write first chunk */
+    if (req->body_len > 0) {
+        fota_write_chunk(req->body, req->body_len);
+    }
+
+    /* Receive and write the rest of the file */
+    size_t bytes_received = req->body_len;
+    while (bytes_received < req->content_length) {
+        const size_t bytes_to_receive = UTILS_MIN(req->content_length - bytes_received, sizeof(ctx.http_buf));
+
+        const int len = recv(client, ctx.http_buf, bytes_to_receive, 0);
+        if (len <= 0) {
+            LOG_ERROR("Upload failed", len);
+            server_send_internal_error(client);
+            return;
+        }
+
+        status = fota_write_chunk(ctx.http_buf, len);
+        if (!status) {
+            server_send_internal_error(client);
+            return;
+        }
+
+        bytes_received += len;
+    }
+
+    fota_finalize();
 
     server_send_response(client, SERVER_HTTP_NO_CONTENT, NULL, NULL);
+
+    server_request_reboot();
 }
 
 static int server_create(void)
@@ -301,6 +382,19 @@ static int server_create(void)
     }
 
     return sock;
+}
+
+static size_t server_get_content_length(const char *buffer)
+{
+    const char *content_length_str = "Content-Length:";
+
+    const char *p = strstr(buffer, content_length_str);
+    if (p == NULL) {
+        return 0;
+    }
+    p += strlen(content_length_str);
+
+    return atoi(p);
 }
 
 static bool server_path_equal(const server_http_req_t *req, const char *path)
@@ -351,7 +445,7 @@ static int server_receive_request(int client, char *buffer, size_t size)
     return (total == 0) ? 0 : -1;
 }
 
-static bool server_parse_request(const char *buffer, server_http_req_t *req)
+static bool server_parse_request(const char *buffer, size_t received_len, server_http_req_t *req)
 {
     /* Extract method */
     const char *method_end = strchr(buffer, ' ');
@@ -384,6 +478,22 @@ static bool server_parse_request(const char *buffer, server_http_req_t *req)
         req->query_len = 0;
     }
 
+    req->content_length = server_get_content_length(buffer);
+
+    const char *body_start = strstr(buffer, "\r\n\r\n");
+    body_start += 4;
+
+    /* Body bytes already received */
+    const size_t header_size = body_start - buffer;
+    if (received_len > header_size) {
+        req->body = body_start;
+        req->body_len = received_len - header_size;
+    }
+    else {
+        req->body = NULL;
+        req->body_len = 0;
+    }
+
     return true;
 }
 
@@ -409,7 +519,7 @@ static void server_task(void *arg)
         if (client >= 0) {
             const int len = server_receive_request(client, ctx.http_buf, sizeof(ctx.http_buf));
             if (len > 0) {
-                if (server_parse_request(ctx.http_buf, &request)) {
+                if (server_parse_request(ctx.http_buf, len, &request)) {
                     server_handle_request(client, &request);
                 }
                 else {

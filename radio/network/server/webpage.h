@@ -18,7 +18,9 @@ static const char *webpage = R"HTML(
         --text: #d8d8d8;
         --green: #64ff64;
         --green-dark: #1b5e20;
+        --red: #ff7070;
         --red-dark: #7f1d1d;
+        --yellow: #ffcc00;
     }
 
     * {
@@ -70,9 +72,17 @@ static const char *webpage = R"HTML(
         word-break: break-word;
     }
 
-    .green { color: #64ff64; }
-    .yellow { color: #ffcc00; }
-    .red { color: #ff7070; }
+    .green {
+        color: var(--green);
+    }
+
+    .yellow {
+        color: var(--yellow);
+    }
+
+    .red {
+        color: var(--red);
+    }
 
     .volume-header {
         display: flex;
@@ -111,8 +121,8 @@ static const char *webpage = R"HTML(
         border: 1px solid var(--border);
         border-radius: 12px;
         font-size: 0.95em;
-        margin-bottom: 8px;
         outline: none;
+        margin-bottom: 8px;
     }
 
     select option {
@@ -121,43 +131,12 @@ static const char *webpage = R"HTML(
         color: var(--text);
     }
 
-    select option:hover {
-        background: #1f1f1f;
-    }
-
     select option:checked {
         background: var(--green-dark);
         color: white;
     }
 
-    select::-webkit-scrollbar {
-        width: 6px;
-    }
-
-    select::-webkit-scrollbar-track {
-        background: #121212;
-        margin: 6px 0;
-        border-radius: 10px;
-    }
-
-    select::-webkit-scrollbar-thumb {
-        background: #2a2a2a;
-        border-radius: 10px;
-    }
-
-    select::-webkit-scrollbar-thumb:hover {
-        background: #64ff64;
-    }
-
-    .buttons {
-        display: flex;
-        gap: 10px;
-        margin-top: 15px;
-        margin-bottom: 20px;
-    }
-
     button {
-        flex: 1;
         border: none;
         color: white;
         padding: 14px;
@@ -167,22 +146,78 @@ static const char *webpage = R"HTML(
         font-weight: bold;
     }
 
+    .buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+        margin-bottom: 20px;
+    }
+
     .play-btn {
+        flex: 1;
         background: var(--green-dark);
     }
 
     .stop-btn {
+        flex: 1;
         background: var(--red-dark);
     }
 
     .status {
         margin-top: 15px;
+        min-height: 45px;
         padding: 12px;
         background: #222;
         border-radius: 10px;
         border: 1px solid #333;
         color: #aaa;
     }
+
+    .advanced {
+        margin-top: 25px;
+        border-top: 1px solid #333;
+        padding-top: 15px;
+        color: #888;
+    }
+
+    .advanced summary {
+        cursor: pointer;
+        font-size: 0.9em;
+        color: #777;
+        user-select: none;
+        margin-bottom: 10px;
+    }
+
+    .advanced summary:hover {
+        color: #aaa;
+    }
+
+    .advanced-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+    }
+
+    .advanced-buttons button {
+        flex: 1;
+    }
+
+    .fota-btn,
+    .reboot-btn {
+        background: #2b2b2b;
+        border: 1px solid #444;
+        color: #aaa;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 0.85em;
+    }
+
+    .fota-btn:hover,
+    .reboot-btn:hover {
+        border-color: #666;
+        color: #ddd;
+    }
+
     </style>
     </head>
 
@@ -218,6 +253,20 @@ static const char *webpage = R"HTML(
         </div>
 
         <div class="status" id="status">Ready</div>
+
+        <details class="advanced">
+            <summary>Advanced</summary>
+
+            <input type="file" id="firmwareFile" accept=".bin" hidden>
+
+            <button class="fota-btn" onclick="selectFirmware()">
+                Update Firmware
+            </button>
+
+            <button class="reboot-btn" onclick="rebootDevice()">
+                Reboot
+            </button>
+        </details>
     </div>
 
     <script>
@@ -267,10 +316,13 @@ static const char *webpage = R"HTML(
     const volumeValue = document.getElementById("volumeValue");
     const nowPlaying = document.getElementById("nowPlaying");
     const state = document.getElementById("state");
+    const firmwareFile = document.getElementById("firmwareFile");
+    const status = document.getElementById("status");
 
     let lastVolume = null;
     let lastUrl = null;
     let lastState = null;
+    let statusTimer = null;
 
     function renderStations()
     {
@@ -322,7 +374,7 @@ static const char *webpage = R"HTML(
             await fetch(`/start?url=${url}`);
 
             setStatus("Starting stream...");
-            document.getElementById("nowPlaying").textContent = url;
+            nowPlaying.textContent = url;
         }
         catch {
             setStatus("Failed to start stream");
@@ -342,7 +394,113 @@ static const char *webpage = R"HTML(
 
     function setStatus(text)
     {
-        document.getElementById("status").textContent = text;
+        status.textContent = text;
+
+        clearTimeout(statusTimer);
+
+        statusTimer = setTimeout(() => {
+            status.textContent = "";
+        }, 3000);
+    }
+
+    async function waitForReboot()
+    {
+        const start = Date.now();
+
+        while (Date.now() - start < 60000) {
+            try {
+                const res = await fetch("/status", {
+                    cache: "no-store"
+                });
+
+                if (res.ok) {
+                    setStatus("Device online, reloading...");
+
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1000);
+
+                    return;
+                }
+            }
+            catch {
+                // Device still rebooting
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        setStatus("Reboot timeout");
+    }
+
+    function selectFirmware()
+    {
+        firmwareFile.click();
+    }
+
+    async function uploadFirmware()
+    {
+        const file = firmwareFile.files[0];
+        if (!file.name.endsWith(".bin")) {
+            setStatus("Invalid firmware file");
+            return;
+        }
+
+        setStatus(`Uploading ${file.name} (${file.size} bytes)...`);
+
+        try {
+            const res = await fetch("/fota", {
+                method: "POST",
+                body: file
+            });
+
+            if (res.ok) {
+                setStatus("Firmware uploaded. Rebooting...");
+                waitForReboot();
+            }
+            else {
+                setStatus(`Upload failed (${res.status})`);
+            }
+        }
+        catch {
+            setStatus("Upload error");
+        }
+        finally {
+            firmwareFile.value = "";
+        }
+    }
+
+    firmwareFile.addEventListener("change", () => {
+        if (!firmwareFile.files.length) {
+            return;
+        }
+
+        const file = firmwareFile.files[0];
+
+        if (confirm(`Flash ${file.name}?`)) {
+            uploadFirmware();
+        }
+        else {
+            firmwareFile.value = "";
+        }
+    });
+
+    async function rebootDevice()
+    {
+        if (!confirm("Reboot device?")) {
+            return;
+        }
+
+        setStatus("Rebooting...");
+
+        try {
+            await fetch("/reboot");
+
+            waitForReboot();
+        }
+        catch {
+            setStatus("Reboot request failed");
+        }
     }
 
     async function updateStatus()

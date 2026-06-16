@@ -525,7 +525,7 @@
  * vTaskCoreAffinityGet APIs can be used to set and retrieve which cores a task
  * can run on. If configUSE_CORE_AFFINITY is set to 0 then the FreeRTOS
  * scheduler is free to run any task on any available core. */
-#define configUSE_CORE_AFFINITY                   0
+#define configUSE_CORE_AFFINITY                   1
 
 /* When using SMP with core affinity feature enabled, set
  * configTASK_DEFAULT_CORE_AFFINITY to change the default core affinity mask for

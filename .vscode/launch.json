@@ -2,9 +2,9 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Pico Debug (Cortex-Debug)",
+            "name": "Debug Bootloader",
             "cwd": "${workspaceRoot}",
-            "executable": "${command:raspberry-pi-pico.launchTargetPath}",
+            "executable": "${workspaceFolder}/build/bootloader/bootloader.elf",
             "request": "launch",
             "type": "cortex-debug",
             "servertype": "openocd",
@@ -16,54 +16,38 @@
             ],
             "svdFile": "${userHome}/.pico-sdk/sdk/2.2.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
             "runToEntryPoint": "main",
-            // Fix for no_flash binaries, where monitor reset halt doesn't do what is expected
-            // Also works fine for flash binaries
             "overrideLaunchCommands": [
-                "monitor reset init",
-                "load \"${command:raspberry-pi-pico.launchTargetPath}\""
+                "monitor reset halt",
+                "monitor program \"${workspaceFolder}/build/bootloader/bootloader.bin\" 0x10000000",
+                "monitor program \"${workspaceFolder}/build/radio/radio_update.bin\" 0x10010000",
+                "add-symbol-file ${workspaceFolder}/build/radio/radio.elf 0x10010000"
             ],
             "openOCDLaunchCommands": [
                 "adapter speed 5000"
             ]
         },
         {
-            "name": "Pico Debug (Cortex-Debug with external OpenOCD)",
+            "name": "Debug Radio",
             "cwd": "${workspaceRoot}",
-            "executable": "${command:raspberry-pi-pico.launchTargetPath}",
+            "executable": "${workspaceFolder}/build/radio/radio.elf",
             "request": "launch",
             "type": "cortex-debug",
-            "servertype": "external",
-            "gdbTarget": "localhost:3333",
+            "servertype": "openocd",
             "gdbPath": "${command:raspberry-pi-pico.getGDBPath}",
             "device": "${command:raspberry-pi-pico.getChipUppercase}",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "target/${command:raspberry-pi-pico.getTarget}.cfg"
+            ],
             "svdFile": "${userHome}/.pico-sdk/sdk/2.2.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
             "runToEntryPoint": "main",
-            // Fix for no_flash binaries, where monitor reset halt doesn't do what is expected
-            // Also works fine for flash binaries
             "overrideLaunchCommands": [
-                "monitor reset init",
-                "load \"${command:raspberry-pi-pico.launchTargetPath}\""
+                "monitor reset halt",
+                "monitor program \"${workspaceFolder}/build/radio/radio_update.bin\" 0x10010000",
+            ],
+            "openOCDLaunchCommands": [
+                "adapter speed 5000"
             ]
-        },
-        {
-            "name": "Pico Debug (C++ Debugger)",
-            "type": "cppdbg",
-            "request": "launch",
-            "cwd": "${workspaceRoot}",
-            "program": "${command:raspberry-pi-pico.launchTargetPath}",
-            "MIMode": "gdb",
-            "miDebuggerPath": "${command:raspberry-pi-pico.getGDBPath}",
-            "miDebuggerServerAddress": "localhost:3333",
-            "debugServerPath": "openocd",
-            "debugServerArgs": "-f interface/cmsis-dap.cfg -f target/${command:raspberry-pi-pico.getTarget}.cfg -c \"adapter speed 5000\"",
-            "serverStarted": "Listening on port .* for gdb connections",
-            "filterStderr": true,
-            "hardwareBreakpoints": {
-                "require": true,
-                "limit": 4
-            },
-            "preLaunchTask": "Flash",
-            "svdPath": "${userHome}/.pico-sdk/sdk/2.2.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd"
         },
     ]
 }
