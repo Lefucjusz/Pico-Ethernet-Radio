@@ -26,6 +26,7 @@ add_subdirectory(third-party/Helix-MP3-Decoder)
 
 target_link_libraries(radio
         pico_stdlib
+        pico_multicore
         freertos_kernel
         ipc
         network

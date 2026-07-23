@@ -83,7 +83,6 @@ static size_t helix_mp3_decode_next_frame(helix_mp3_t *mp3)
 
         const int offset = MP3FindSyncWord(mp3->mp3_read_ptr, mp3->mp3_buffer_bytes_left);
         if (offset < 0) {
-            printf("not good\n");
             pcm_samples_read = 0;
             break; // Out of data
         }
@@ -109,7 +108,6 @@ static size_t helix_mp3_decode_next_frame(helix_mp3_t *mp3)
             continue; // Get more data from file
         }
         else if (mp3->mp3_buffer_bytes_left > 0) {
-            // printf("MP3 error %d, resyncing...\n", err);
             mp3->mp3_read_ptr++;
             mp3->mp3_buffer_bytes_left--;
             continue; // False sync word, skip first byte and try again

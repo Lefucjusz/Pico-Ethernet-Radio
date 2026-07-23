@@ -21,7 +21,7 @@
             "label": "Run Project",
             "dependsOn": "Compile Project",
             "type": "process",
-            "command": "${env:HOME}/.pico-sdk/picotool/2.2.0/picotool/picotool",
+            "command": "${env:HOME}/.pico-sdk/picotool/2.3.0/picotool/picotool",
             "args": [
                 "load",
                 "${workspaceFolder}/build/factory.uf2",
@@ -33,7 +33,7 @@
             },
             "problemMatcher": [],
             "windows": {
-                "command": "${env:USERPROFILE}/.pico-sdk/picotool/2.2.0/picotool/picotool.exe"
+                "command": "${env:USERPROFILE}/.pico-sdk/picotool/2.3.0/picotool/picotool.exe"
             }
         },
         {
