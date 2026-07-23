@@ -59,6 +59,7 @@ static void bootstrap_task(void *arg)
 {
     logger_init();
 
+    LOG_INFO("Pico-Ethernet-Radio build " __DATE__ " " __TIME__);
     LOG_INFO("Started at core %d", portGET_CORE_ID());
 
     ipc_context_init();

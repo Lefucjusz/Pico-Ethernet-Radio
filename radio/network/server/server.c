@@ -15,6 +15,7 @@
 
 #define SERVER_STATUS_RESPONSE_TIMEOUT_TICKS pdMS_TO_TICKS(500)
 #define SERVER_SEND_CHUNK_SIZE_BYTES 1024
+#define SERVER_SOCKET_TIMEOUT_S 5
 
 typedef enum
 {
@@ -120,7 +121,13 @@ static void server_send(int client, const char *data, size_t size)
     size_t total_sent = 0;
     while (total_sent < size) {
         const size_t bytes_to_send = UTILS_MIN(size - total_sent, SERVER_SEND_CHUNK_SIZE_BYTES);
-        const size_t sent = send(client, &data[total_sent], bytes_to_send, 0);
+
+        const ssize_t sent = send(client, &data[total_sent], bytes_to_send, 0);
+        if (sent <= 0) {
+            LOG_ERROR("send() failed");
+            return;
+        }
+
         total_sent += sent;
     }
 }
@@ -239,7 +246,7 @@ static void server_handle_volume(int client, const server_http_req_t *req)
     if (server_parse_int(req, "value", &volume)) {
         ipc_manager_msg_t msg = {
             .type = IPC_MSG_UI_SET_VOLUME,
-            .arg = (void *)volume
+            .arg = volume
         };
         xQueueSend(ctx.ipc->manager_q, &msg, 0);
 
@@ -257,7 +264,7 @@ static void server_handle_start(int client, const server_http_req_t *req)
     if (server_parse_str(req, "url", url, sizeof(url))) {
         ipc_manager_msg_t msg = {
             .type = IPC_MSG_UI_START_PLAYBACK,
-            .arg = (void *)url
+            .arg = (uintptr_t)url
         };
         xQueueSend(ctx.ipc->manager_q, &msg, 0);
 
@@ -336,9 +343,9 @@ static void server_handle_fota(int client, const server_http_req_t *req)
     while (bytes_received < req->content_length) {
         const size_t bytes_to_receive = UTILS_MIN(req->content_length - bytes_received, sizeof(ctx.http_buf));
 
-        const int len = recv(client, ctx.http_buf, bytes_to_receive, 0);
+        const ssize_t len = recv(client, ctx.http_buf, bytes_to_receive, 0);
         if (len <= 0) {
-            LOG_ERROR("Upload failed", len);
+            LOG_ERROR("Upload failed");
             server_send_internal_error(client);
             return;
         }
@@ -421,12 +428,12 @@ static void server_handle_request(int client, const server_http_req_t *req)
     server_send_response(client, SERVER_HTTP_NOT_FOUND, "text/html", "<h1>404 Not Found</h1>");
 }
 
-static int server_receive_request(int client, char *buffer, size_t size)
+static int server_receive_headers(int client, char *buffer, size_t size)
 {
     int total = 0;
 
     while (total < (size - 1)) {
-        const int len = recv(client, &buffer[total], size - 1 - total, 0);
+        const ssize_t len = recv(client, &buffer[total], size - 1 - total, 0);
         if (len < 0) {
             return -1;
         }
@@ -497,6 +504,17 @@ static bool server_parse_request(const char *buffer, size_t received_len, server
     return true;
 }
 
+static void server_configure_timeouts(int client)
+{
+    const struct timeval tv = {
+        .tv_sec = SERVER_SOCKET_TIMEOUT_S,
+        .tv_usec = 0
+    };
+
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
 static void server_task(void *arg)
 {
     struct sockaddr_in addr;
@@ -517,7 +535,9 @@ static void server_task(void *arg)
 
         int client = accept(sock, (struct sockaddr *)&addr, &addr_len);
         if (client >= 0) {
-            const int len = server_receive_request(client, ctx.http_buf, sizeof(ctx.http_buf));
+            server_configure_timeouts(client);
+
+            const int len = server_receive_headers(client, ctx.http_buf, sizeof(ctx.http_buf));
             if (len > 0) {
                 if (server_parse_request(ctx.http_buf, len, &request)) {
                     server_handle_request(client, &request);

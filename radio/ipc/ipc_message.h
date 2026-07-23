@@ -51,7 +51,7 @@ typedef enum
 typedef struct
 {
     ipc_msg_type_t type;
-    void *arg; // TODO maybe different type?
+    uintptr_t arg;
 } ipc_manager_msg_t;
 
 typedef struct

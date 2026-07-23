@@ -18,7 +18,9 @@ static void netif_status_callback(struct netif *netif)
     if (!ip4_addr_isany(netif_ip4_addr(netif))) {
         LOG_INFO("Got IP: %s", ip4addr_ntoa(netif_ip4_addr(netif)));
 
-        ipc_manager_msg_t msg = {.type = IPC_MSG_NETWORK_GOT_IP};
+        ipc_manager_msg_t msg = {
+            .type = IPC_MSG_NETWORK_GOT_IP
+        };
         xQueueSend(ctx.ipc->manager_q, &msg, 0);
     }
 }

@@ -52,7 +52,7 @@ static void decoder_report_running(void)
 {
     ipc_manager_msg_t msg = {
         .type = IPC_MSG_DECODER_RUNNING,
-        .arg = (void *)helix_mp3_get_sample_rate(&ctx.mp3)
+        .arg = (uintptr_t)helix_mp3_get_sample_rate(&ctx.mp3)
     };
     xQueueSend(ctx.ipc->manager_q, &msg, 0);
 }

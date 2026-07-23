@@ -195,13 +195,13 @@ static void evt_mgr_task(void *arg)
             case RADIO_STATE_READY:
                 switch (msg.type) {
                     case IPC_MSG_UI_START_PLAYBACK:
-                        strlcpy(status.stream_url, msg.arg, sizeof(status.stream_url));
+                        strlcpy(status.stream_url, (const char *)msg.arg, sizeof(status.stream_url));
                         evt_mgr_stream_start(status.stream_url);
                         new_state = RADIO_STATE_STARTING_STREAM;
                         break;
 
                     case IPC_MSG_UI_SET_VOLUME:
-                        status.volume = (uintptr_t)msg.arg;
+                        status.volume = msg.arg;
                         evt_mgr_player_set_volume(status.volume);
                         break;
 
@@ -241,8 +241,8 @@ static void evt_mgr_task(void *arg)
             case RADIO_STATE_STARTING_DECODER:
                 switch (msg.type) {
                     case IPC_MSG_DECODER_RUNNING:
-                        LOG_INFO("Decoder running, sample rate %uHz!", (uintptr_t)msg.arg);
-                        evt_mgr_player_start((uintptr_t)msg.arg);
+                        LOG_INFO("Decoder running, sample rate %uHz!", msg.arg);
+                        evt_mgr_player_start(msg.arg);
                         new_state = RADIO_STATE_STARTING_PLAYER;
                         break;
 
@@ -307,7 +307,7 @@ static void evt_mgr_task(void *arg)
                         break;
 
                     case IPC_MSG_UI_SET_VOLUME:
-                        status.volume = (uintptr_t)msg.arg;
+                        status.volume = msg.arg;
                         evt_mgr_player_set_volume(status.volume);
                         break;
 
@@ -359,13 +359,13 @@ static void evt_mgr_task(void *arg)
 
                     case IPC_MSG_UI_START_PLAYBACK:
                         ctx.restart_attempts = 0;
-                        strlcpy(status.stream_url, msg.arg, sizeof(status.stream_url));
+                        strlcpy(status.stream_url, (const char *)msg.arg, sizeof(status.stream_url));
                         evt_mgr_stream_start(status.stream_url);
                         new_state = RADIO_STATE_STARTING_STREAM;
                         break;
 
                     case IPC_MSG_UI_SET_VOLUME:
-                        status.volume = (uintptr_t)msg.arg;
+                        status.volume = msg.arg;
                         evt_mgr_player_set_volume(status.volume);
                         break;
                 }
