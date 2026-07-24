@@ -43,11 +43,6 @@ static size_t decoder_read_callback(void *user_data, void *buffer, size_t size)
     return bytes;
 }
 
-static int decoder_seek_callback(void *user_data, int offset)
-{
-    return 0; // Dummy implementation
-}
-
 static void decoder_report_running(void)
 {
     ipc_manager_msg_t msg = {
@@ -73,14 +68,6 @@ static void decoder_report_buffering(void)
     xQueueSend(ctx.ipc->manager_q, &msg, 0);
 }
 
-static void decoder_report_fail(void)
-{
-    ipc_manager_msg_t msg = {
-        .type = IPC_MSG_DECODER_FAIL
-    };
-    xQueueSend(ctx.ipc->manager_q, &msg, 0);
-}
-
 static TickType_t decoder_get_queue_block_time(decoder_state_t state)
 {
     if (state == DECODER_IDLE) {
@@ -92,11 +79,16 @@ static TickType_t decoder_get_queue_block_time(decoder_state_t state)
 static void decoder_task(void *arg)
 {
     ipc_decoder_msg_t msg;
-    decoder_state_t state;
+    decoder_state_t state = DECODER_IDLE;
 
     ctx.ipc = ipc_context_get();
     ctx.mp3_io.read = decoder_read_callback;
-    ctx.mp3_io.seek = decoder_seek_callback;
+
+    const int err = helix_mp3_init(&ctx.mp3, &ctx.mp3_io);
+    if (err) {
+        LOG_FATAL("Helix decoder init failed, error %d", err);
+        configASSERT(0);
+    }
 
     const size_t recv_buffer_size = xStreamBufferBytesAvailable(ctx.ipc->recv_buffer) + xStreamBufferSpacesAvailable(ctx.ipc->recv_buffer);
     ctx.watermark_low = 2 * recv_buffer_size / 10; // 20%
@@ -146,15 +138,9 @@ static void decoder_task(void *arg)
                 if (bytes_available > ctx.watermark_high) {
                     LOG_DEBUG("Buffer ready: %uB", bytes_available);
 
-                    helix_mp3_deinit(&ctx.mp3); // TODO this is very costly recovery strategy
-                    int err = helix_mp3_init(&ctx.mp3, &ctx.mp3_io);
-                    if (err) {
-                        LOG_ERROR("Init failed, error %d", err);
-                        decoder_report_fail();
-                        state = DECODER_IDLE;
-                        LOG_DEBUG("BUFFERING -> IDLE");
-                    }
-                    else {
+                    /* Reset current decoder state and try to decode new frames */
+                    helix_mp3_reset(&ctx.mp3);
+                    if (helix_mp3_read_pcm_frames_s16(&ctx.mp3, (int16_t *)ctx.pcm_buffer, DECODER_BUFFER_SIZE_FRAMES) > 0) {
                         decoder_report_running();
                         state = DECODER_RUNNING;
                         LOG_DEBUG("BUFFERING -> RUNNING");

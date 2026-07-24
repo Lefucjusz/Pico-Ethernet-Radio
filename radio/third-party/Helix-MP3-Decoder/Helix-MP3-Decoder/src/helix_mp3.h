@@ -15,22 +15,17 @@
 /** @struct helix_mp3_io_t
  *  I/O interface for custom stream handling.
  *
- *  @var helix_mp3_io_t::seek
- *      Pointer to custom seek function. Offset will always be
- *      given from the beginning of the file. The function
- *      should return 0 on success and non-zero value on failure.
  *  @var helix_mp3_io_t::read
  *      Pointer to custom read function. The function should
  *      return number of bytes read (can be zero) on success
  *      and zero on failure.
  *  @var helix_mp3_io_t::user_data
  *      Pointer to argument that will be passed while invoking
- *      seek or read. Usually pointer to file descriptor. Can
+ *      read. Usually pointer to file descriptor. Can
  *      be NULL if not needed.
  */
 typedef struct
 {
-    int (*seek)(void *user_data, int offset);
     size_t (*read)(void *user_data, void *buffer, size_t size);
     void *user_data;
 } helix_mp3_io_t;
@@ -71,21 +66,20 @@ typedef struct
 int helix_mp3_init(helix_mp3_t *mp3, const helix_mp3_io_t *io);
 
 /**
- * @brief Initializes the decoder for a given file
- * 
- * @param mp3 pointer to decoder context
- * @param path path to MP3 file to decode
- * @return int appropriate errno code on failure, zero on success
- */
-int helix_mp3_init_file(helix_mp3_t *mp3, const char *path);
-
-/**
  * @brief Deinitializes the decoder, freeing all internal resources
  * 
  * @param mp3 pointer to decoder context
  * @return int appropriate errno code on failure, zero on success
  */
 int helix_mp3_deinit(helix_mp3_t *mp3);
+
+/**
+ * @brief Resets the internal PCM and MP3 buffers state
+ *
+ * @param mp3 pointer to decoder context
+ * @return int appropriate errno code on failure, zero on success
+ */
+int helix_mp3_reset(helix_mp3_t *mp3);
 
 /**
  * @brief Returns sample rate of the last decoded frame

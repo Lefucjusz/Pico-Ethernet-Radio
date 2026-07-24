@@ -246,17 +246,6 @@ static void evt_mgr_task(void *arg)
                         new_state = RADIO_STATE_STARTING_PLAYER;
                         break;
 
-                    case IPC_MSG_DECODER_FAIL:
-                        LOG_ERROR("Decoder failed!");
-                        evt_mgr_stream_stop();
-                        if (evt_mgr_restart_reschedule()) {
-                            new_state = RADIO_STATE_AWAITING_RESTART;
-                        }
-                        else {
-                            new_state = RADIO_STATE_ERROR;
-                        }
-                        break;
-
                     case IPC_MSG_STREAM_FAIL:
                         evt_mgr_decoder_stop();
                         if (evt_mgr_restart_reschedule()) {
