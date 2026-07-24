@@ -9,7 +9,7 @@
 
 static ipc_ctx_t ctx;
 
-bool ipc_context_init(void)
+void ipc_context_init(void)
 {
     ctx.recv_buffer = xStreamBufferCreate(IPC_CONTEXT_RECV_BUFFER_SIZE, 0);
     ctx.pcm_buffer = xStreamBufferCreate(IPC_CONTEXT_PCM_BUFFER_SIZE, 0);
@@ -20,8 +20,6 @@ bool ipc_context_init(void)
     ctx.decoder_q = xQueueCreate(IPC_CONTEXT_MODULE_QUEUE_LENGTH, sizeof(ipc_decoder_msg_t));
     ctx.player_q = xQueueCreate(IPC_CONTEXT_MODULE_QUEUE_LENGTH, sizeof(ipc_player_msg_t));
     ctx.server_q = xQueueCreate(IPC_CONTEXT_MODULE_QUEUE_LENGTH, sizeof(ipc_server_msg_t));
-
-    return true;
 }
 
 const ipc_ctx_t *ipc_context_get(void)

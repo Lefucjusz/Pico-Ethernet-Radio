@@ -116,6 +116,12 @@ static void player_task(void *arg)
     ipc_player_msg_t msg;
     int err;
 
+    ctx.ipc = ipc_context_get();
+
+    const size_t pcm_buffer_size = xStreamBufferBytesAvailable(ctx.ipc->pcm_buffer) + xStreamBufferSpacesAvailable(ctx.ipc->pcm_buffer);
+    ctx.watermark_low = 2 * pcm_buffer_size / 10; // 20%
+    ctx.watermark_high = 8 * pcm_buffer_size / 10; // 80%
+
     LOG_INFO("Started at core %d", portGET_CORE_ID());
 
     /* TODO defines */
@@ -219,12 +225,6 @@ static void player_task(void *arg)
 
 void player_init(void)
 {
-    ctx.ipc = ipc_context_get();
-
-    const size_t pcm_buffer_size = xStreamBufferBytesAvailable(ctx.ipc->pcm_buffer) + xStreamBufferSpacesAvailable(ctx.ipc->pcm_buffer);
-    ctx.watermark_low = 2 * pcm_buffer_size / 10; // 20%
-    ctx.watermark_high = 8 * pcm_buffer_size / 10; // 80%
-
     xTaskCreate(player_task,
                 PLAYER_TASK_NAME,
                 PLAYER_TASK_STACK_SIZE,

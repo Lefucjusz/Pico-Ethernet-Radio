@@ -36,11 +36,7 @@ static decoder_ctx_t ctx;
 
 static size_t decoder_read_callback(void *user_data, void *buffer, size_t size)
 {
-    size_t bytes = xStreamBufferReceive(ctx.ipc->recv_buffer, buffer, size, portMAX_DELAY);
-    if (bytes < size) {
-        LOG_ERROR("Approaching underrun!");
-    }
-    return bytes;
+    return xStreamBufferReceive(ctx.ipc->recv_buffer, buffer, size, portMAX_DELAY);
 }
 
 static void decoder_report_running(void)

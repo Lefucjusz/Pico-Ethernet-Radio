@@ -16,6 +16,6 @@ typedef struct
     QueueHandle_t server_q;
 } ipc_ctx_t;
 
-bool ipc_context_init(void);
+void ipc_context_init(void);
 
 const ipc_ctx_t *ipc_context_get(void);
