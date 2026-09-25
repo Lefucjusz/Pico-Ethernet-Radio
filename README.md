@@ -94,15 +94,87 @@ The web interface allows:
 
 The entire webpage is embedded directly into the firmware image and served from device memory.
 
-## Firmware update mechanism
+## Bootloader
 
-The device supports firmware updates directly through the web interface, allowing upgrades without physical access or a USB connection.
+The project uses a custom bootloader implemented as a bare-metal Pico SDK application. Its main responsibilities are validating the application image, applying firmware updates uploaded through the web interface, and transferring execution to the application.
 
-Firmware images are uploaded into a staging slot located in flash memory. During boot, the custom bootloader validates the staged image and, if valid, activates it. Otherwise, the currently active firmware remains unchanged.
+The bootloader uses an active/staging layout rather than a traditional A/B scheme. The application is always executed from the same flash address, while a separate region is used to store the new firmware image. This simplifies the implementation; with a true A/B design, the firmware would either need to be linked for multiple execution addresses or built as a genuinely position-independent binary.
 
-A more detailed description of the flash layout and boot process will be added in a future update. For now, it is worth mentioning that the firmware uses an `active/staging` layout rather than a traditional `A/B` scheme.
+### Flash layout
 
-This simplifies the implementation because the application is always executed from the same flash address. With a true A/B design, the firmware would either need to be linked for multiple execution addresses or built as a genuinely position-independent binary. For a hobby project, that additional complexity did not seem worth the effort.
+| Region           | Offset     | Size   | Description                         |
+|------------------|------------|--------|-------------------------------------|
+| Bootloader       | 0x00000000 | 64KiB  | Bootloader, not updateable by FOTA  |
+| Active firmware  | 0x00010000 | 512KiB | Currently active application        |
+| Staging firmware | 0x00090000 | 512KiB | Firmware image uploaded during FOTA |
+| Unused           | 0x00110000 | 956KiB | Currently not used                  |
+| Configuration    | 0x001FF000 | 4KiB   | Update status                       |
+
+#### Configuration area
+
+The configuration area occupies the last flash sector. Currently, only its first byte is used. This byte acts as an update status flag. A value of `UPDATE_STATUS_UPDATE_PENDING` indicates that a complete firmware image has been uploaded to the staging area and is ready to be applied. Any other value results in a normal boot.
+
+### Firmware image layout
+
+Firmware images contain a fixed-size 256-byte header followed by the application binary:
+
+| Offset | Size      | Field       | Description                                    |
+|--------|-----------|-------------|------------------------------------------------|
+| 0x00   | 4 bytes   | magic       | Image magic value (0xCAFED00D)                 |
+| 0x04   | 4 bytes   | image_size  | Application payload size, excluding the header |
+| 0x08   | 4 bytes   | crc32       | CRC32 of the application payload               |
+| 0x0C   | 244 bytes | reserved    | Reserved; pads the header to 256 bytes         |
+| 0x100  | -         | Application | Application binary                             |
+
+The header is exactly 256 bytes so that the application vector table starts at a suitable alignment for the Cortex-M VTOR register.
+
+The CRC32 is calculated over the application payload only, excluding the header. The `image_size` field therefore specifies exactly the amount of data covered by the CRC.
+
+### Firmware Update
+
+#### Firmware upload
+
+The application receives firmware images through an HTTP `POST` request from the web interface.
+
+The application does not perform full firmware validation while receiving the image. The uploaded data is written directly to the staging area. Only basic size and bounds checks are performed during the upload:
+
+* the declared image size (Content-Length) must not exceed the staging area size;
+* received data must not exceed the declared image size;
+* the update is only marked as pending after the upload has been finalized.
+
+The image is written to flash page by page. Flash sectors are erased as necessary when new pages are written.
+
+Once all data has been received, the final partial page is padded with `0xFF` if necessary and written to flash. Only then is the update-pending flag written to the configuration sector. This ordering is intentional: an interrupted upload does not leave the bootloader with an update marked as ready.
+
+After the update-pending flag has been written, the application reboots the device.
+
+#### Update process
+
+On every boot, the bootloader first checks the update status byte in the configuration area. If the status is not `UPDATE_STATUS_UPDATE_PENDING`, the update procedure is skipped and the bootloader proceeds with a normal boot. If an update is pending, the bootloader validates the image stored in the staging area before modifying the active firmware.
+
+The staging image is considered valid only if:
+
+* the image contains the expected magic value;
+* the image size does not exceed the active firmware area;
+* the CRC32 stored in the header matches the calculated CRC32 of the application payload.
+
+If any of these checks fail, the update is aborted and the existing active firmware is left untouched. The bootloader then proceeds with a normal boot.
+
+If all checks pass, the bootloader obtains the image size and erases the number of flash sectors in the active area required to store the new image. The image is then copied from the staging area to the active firmware area.
+
+Finally, after the entire image has been copied successfully, the bootloader clears the update-pending flag. The flag is deliberately cleared at the very end of the update process. This provides a simple form of power-loss recovery: if power is lost while the active image is being erased or programmed, the update-pending flag remains set. On the next boot, the bootloader will therefore attempt the update again using the image that remains in the staging area.
+
+### Application boot
+
+When no update is pending, or after the update process has completed, the bootloader validates the active firmware image before transferring execution to it. The validation steps are the same as those used for the staging image.
+
+Once the image is considered valid, the bootloader performs the usual Cortex-M application handoff:
+
+* sets `VTOR` to the application's vector table;
+* loads the initial stack pointer from the vector table;
+* jumps to the application's reset handler.
+
+If the active firmware image fails validation, the bootloader cannot safely transfer execution to the application. In this case, it halts and indicates the error by continuously blinking the onboard LED.
 
 ## Current status
 
@@ -137,20 +209,11 @@ One missing mutex. Three days of debugging.
 ### Documentation status
 The project is currently poorly documented. I plan to gradually extend this README with more detailed information about:
 
-* flash layout;
 * overall radio application architecture;
 * event/state machine design;
-* firmware update mechanism;
 * provisioning image concept.
 
 Unfortunately, I haven't had much time recently and that doesn't seem likely to change soon, so the current goal is simply to document everything before I forget how it works :smile:
-
-### Decoder startup lockup
-Occasionally the device gets stuck in the decoder startup state. The issue is difficult to reproduce; the entire board becomes unresponsive and UART logs do not show anything suspicious before the lockup occurs.
-
-At some point I need to catch this under a debugger and investigate what is actually happening there.
-
-The current decoder error recovery strategy is not very elegant in general. It reinitializes the entire Helix decoder instance, including freeing and allocating back relatively large memory blocks. This approach is quite expensive, but it is a leftover from an earlier stage of the project where it was "good enough" and has remained because it worked reliably enough in practice.
 
 ### FOTA implementation coupling
 The FOTA mechanism is currently tightly coupled with the HTTP server implementation. Ideally, these components would be separated behind a cleaner abstraction layer.
