@@ -156,6 +156,12 @@ static void evt_mgr_task(void *arg)
             continue;
         }
 
+        if (msg.type == IPC_MSG_UI_SET_VOLUME) {
+            status.volume = msg.arg;
+            evt_mgr_player_set_volume(status.volume);
+            continue;
+        }
+
         if (msg.type == IPC_MSG_UI_REQUEST_REBOOT) {
             LOG_INFO("Rebooting...");
             evt_mgr_reboot();
@@ -198,11 +204,6 @@ static void evt_mgr_task(void *arg)
                         strlcpy(status.stream_url, (const char *)msg.arg, sizeof(status.stream_url));
                         evt_mgr_stream_start(status.stream_url);
                         new_state = RADIO_STATE_STARTING_STREAM;
-                        break;
-
-                    case IPC_MSG_UI_SET_VOLUME:
-                        status.volume = msg.arg;
-                        evt_mgr_player_set_volume(status.volume);
                         break;
 
                     case IPC_MSG_NETWORK_LINK_DOWN:
@@ -295,11 +296,6 @@ static void evt_mgr_task(void *arg)
                         }
                         break;
 
-                    case IPC_MSG_UI_SET_VOLUME:
-                        status.volume = msg.arg;
-                        evt_mgr_player_set_volume(status.volume);
-                        break;
-
                     case IPC_MSG_UI_STOP_PLAYBACK:
                         evt_mgr_player_stop();
                         evt_mgr_decoder_stop();
@@ -351,11 +347,6 @@ static void evt_mgr_task(void *arg)
                         strlcpy(status.stream_url, (const char *)msg.arg, sizeof(status.stream_url));
                         evt_mgr_stream_start(status.stream_url);
                         new_state = RADIO_STATE_STARTING_STREAM;
-                        break;
-
-                    case IPC_MSG_UI_SET_VOLUME:
-                        status.volume = msg.arg;
-                        evt_mgr_player_set_volume(status.volume);
                         break;
                 }
                 break;
